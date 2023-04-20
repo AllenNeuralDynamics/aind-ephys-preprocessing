@@ -214,7 +214,7 @@ if __name__ == "__main__":
                 preprocessing_vizualization_data[recording_name]["drift"] = dict(
                                                         recording=recording_drift.to_dict()
                                                     )
-                with open((preprocessed_viz_folder / f"{recording_name}.json") as f:
+                with open(preprocessed_viz_folder / f"{recording_name}.json", "w") as f:
                     json.dump(preprocessing_vizualization_data, f, indent=4)
 
         t_preprocessing_end = time.perf_counter()
