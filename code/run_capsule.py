@@ -99,6 +99,9 @@ if __name__ == "__main__":
         preprocessing_vizualization_data = {}
         print(f"Preprocessing strategy: {PREPROCESSING_STRATEGY}")
 
+        preprocessed_output_folder = results_folder / "preprocessed"
+        preprocessed_viz_folder = results_folder / "preprocessed_viz_data"
+
         for job_config_file in job_config_json_files:
             with open(job_config_file, "r") as f:
                 job_config = json.load(f)
@@ -114,7 +117,6 @@ if __name__ == "__main__":
                 ecephys_folder = session / "ecephys_clipped"
             else:
                 ecephys_folder = ecephys_full_folder
-            preprocessed_output_folder = results_folder / "preprocessed"
 
             experiment_name = job_config["experiment_name"]
             stream_name = job_config["stream_name"]
@@ -212,6 +214,8 @@ if __name__ == "__main__":
                 preprocessing_vizualization_data[recording_name]["drift"] = dict(
                                                         recording=recording_drift.to_dict()
                                                     )
+                with open((preprocessed_viz_folder / f"{recording_name}.json") as f:
+                    json.dump(preprocessing_vizualization_data, f, indent=4)
 
         t_preprocessing_end = time.perf_counter()
         elapsed_time_preprocessing = np.round(t_preprocessing_end - t_preprocessing_start, 2)
@@ -224,7 +228,7 @@ if __name__ == "__main__":
                 end_date_time=datetime_start_preproc + timedelta(seconds=np.floor(elapsed_time_preprocessing)),
                 input_location=str(data_folder),
                 output_location=str(results_folder),
-                code_url=PIPELINE_URL,
+                code_url=URL,
                 parameters=preprocessing_params,
                 notes=preprocessing_notes
             )
