@@ -30,7 +30,6 @@ from aind_data_schema.processing import DataProcess
 URL = "https://github.com/AllenNeuralDynamics/aind-capsule-ephys-preprocessing"
 VERSION = "0.1.0"
 
-
 preprocessing_params = dict(
         preprocessing_strategy="cmr", # 'destripe' or 'cmr'
         highpass_filter=dict(freq_min=300.0,
@@ -80,6 +79,9 @@ if __name__ == "__main__":
         DEBUG = False
         DURATION_S = None
 
+    data_processes_folder = results_folder / "data_processes"
+    data_processes_folder.mkdir(exist_ok=True)
+
     if DEBUG:
         print(f"DEBUG ENABLED - Only running with {DURATION_S} seconds")
     
@@ -126,7 +128,9 @@ if __name__ == "__main__":
             block_index = job_config["block_index"]
             segment_index = job_config["segment_index"]
             recording_name = job_config["recording_name"]
+
             preprocessing_vizualization_data[recording_name] = {}
+            preprocessing_output_process_json = data_processes_folder / f"preprocessing_{recording_name}.json"
 
             exp_stream_name = f"{experiment_name}_{stream_name}"
             if not compressed:
@@ -224,6 +228,7 @@ if __name__ == "__main__":
         elapsed_time_preprocessing = np.round(t_preprocessing_end - t_preprocessing_start, 2)
 
         # save params in output
+        preprocessing_params["recording_name"] = recording_name
         preprocessing_process = DataProcess(
                 name="Ephys preprocessing",
                 version=VERSION, # either release or git commit
@@ -235,6 +240,9 @@ if __name__ == "__main__":
                 parameters=preprocessing_params,
                 notes=preprocessing_notes
             )
+        with open(preprocessing_output_process_json, "w") as f:
+            f.write(preprocessing_process.json(indent=3))
+
         print(f"PREPROCESSING time: {elapsed_time_preprocessing}s")
 
 
