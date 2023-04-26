@@ -21,6 +21,8 @@ import spikeinterface.extractors as se
 import spikeinterface.sorters as ss
 import spikeinterface.preprocessing as spre
 
+from spikeinterface.core.core_tools import check_json
+
 # AIND
 from aind_data_schema import Processing
 from aind_data_schema.processing import DataProcess
@@ -100,7 +102,8 @@ if __name__ == "__main__":
         print(f"Preprocessing strategy: {PREPROCESSING_STRATEGY}")
 
         preprocessed_output_folder = results_folder / "preprocessed"
-        preprocessed_viz_folder = results_folder / "preprocessed_viz_data"
+        preprocessed_viz_folder = results_folder / "visualization_preprocessed"
+        preprocessed_viz_folder.mkdir(exist_ok=True)
 
         for job_config_file in job_config_json_files:
             with open(job_config_file, "r") as f:
@@ -135,7 +138,7 @@ if __name__ == "__main__":
                 recording_list = []
                 for segment_index in range(recording.get_num_segments()):
                     recording_one = si.split_recording(recording)[segment_index]
-                    recording_one = recording_one.frame_slice(start_frame=0, end_frame=int(DEBUG_DURATION*recording.sampling_frequency))
+                    recording_one = recording_one.frame_slice(start_frame=0, end_frame=int(DURATION_S*recording.sampling_frequency))
                     recording_list.append(recording_one)
                 recording = si.append_recordings(recording_list)
 
@@ -215,7 +218,7 @@ if __name__ == "__main__":
                                                         recording=recording_drift.to_dict()
                                                     )
                 with open(preprocessed_viz_folder / f"{recording_name}.json", "w") as f:
-                    json.dump(preprocessing_vizualization_data, f, indent=4)
+                    json.dump(check_json(preprocessing_vizualization_data), f, indent=4)
 
         t_preprocessing_end = time.perf_counter()
         elapsed_time_preprocessing = np.round(t_preprocessing_end - t_preprocessing_start, 2)
