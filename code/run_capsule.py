@@ -3,8 +3,6 @@ warnings.filterwarnings("ignore")
 
 # GENERAL IMPORTS
 import os
-
-import os
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 import numpy as np
@@ -18,7 +16,6 @@ from datetime import datetime, timedelta
 # SPIKEINTERFACE
 import spikeinterface as si
 import spikeinterface.extractors as se
-import spikeinterface.sorters as ss
 import spikeinterface.preprocessing as spre
 
 from spikeinterface.core.core_tools import check_json
@@ -29,6 +26,8 @@ from aind_data_schema.processing import DataProcess
 
 URL = "https://github.com/AllenNeuralDynamics/aind-capsule-ephys-preprocessing"
 VERSION = "0.1.0"
+
+import wavpack_numcodecs
 
 preprocessing_params = dict(
         preprocessing_strategy="cmr", # 'destripe' or 'cmr'
@@ -78,6 +77,8 @@ if __name__ == "__main__":
         PREPROCESSING_STRATEGY = "cmr"
         DEBUG = False
         DURATION_S = None
+
+    print(f"Wavpack-numcodecs version: {wavpack_numcodecs.__version__}")
 
     data_processes_folder = results_folder / "data_processes"
     data_processes_folder.mkdir(exist_ok=True)
@@ -214,6 +215,12 @@ if __name__ == "__main__":
                     print(f"\tRemoving {len(bad_channel_ids)} channels after {preproc_strategy} preprocessing")
                     recording_processed = recording_processed.remove_channels(bad_channel_ids)
                     preprocessing_notes += f"\n- Removed {len(bad_channel_ids)} bad channels after preprocessing.\n"
+                recording_processed.dump_to_json(
+                    preprocessed_output_folder / f"{recording_name}.json",
+                    include_annotations=True,
+                    include_properties=True,
+                    relative_to=Path(".")
+                )
                 recording_saved = recording_processed.save(folder=preprocessed_output_folder / recording_name)
                 recording_drift = recording_saved
 
@@ -223,6 +230,7 @@ if __name__ == "__main__":
                                                     )
                 with open(preprocessed_viz_folder / f"{recording_name}.json", "w") as f:
                     json.dump(check_json(preprocessing_vizualization_data), f, indent=4)
+                
 
         t_preprocessing_end = time.perf_counter()
         elapsed_time_preprocessing = np.round(t_preprocessing_end - t_preprocessing_start, 2)
