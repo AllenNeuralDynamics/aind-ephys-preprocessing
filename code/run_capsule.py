@@ -80,8 +80,8 @@ if __name__ == "__main__":
 
     print(f"Wavpack-numcodecs version: {wavpack_numcodecs.__version__}")
 
-    data_processes_folder = results_folder / "data_processes"
-    data_processes_folder.mkdir(exist_ok=True)
+    data_processes_folder = results_folder / "data_processes" / "preprocessing"
+    data_processes_folder.mkdir(exist_ok=True, parents=True)
 
     if DEBUG:
         print(f"DEBUG ENABLED - Only running with {DURATION_S} seconds")
