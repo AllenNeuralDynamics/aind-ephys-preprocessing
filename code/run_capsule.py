@@ -215,12 +215,6 @@ if __name__ == "__main__":
                     print(f"\tRemoving {len(bad_channel_ids)} channels after {preproc_strategy} preprocessing")
                     recording_processed = recording_processed.remove_channels(bad_channel_ids)
                     preprocessing_notes += f"\n- Removed {len(bad_channel_ids)} bad channels after preprocessing.\n"
-                recording_processed.dump_to_json(
-                    preprocessed_output_folder / f"{recording_name}.json",
-                    include_annotations=True,
-                    include_properties=True,
-                    relative_to=Path(".")
-                )
                 recording_saved = recording_processed.save(folder=preprocessed_output_folder / recording_name)
                 recording_drift = recording_saved
 
