@@ -97,7 +97,6 @@ if __name__ == "__main__":
         ####### PREPROCESSING #######
         print("\n\nPREPROCESSING")
         t_preprocessing_start_all = time.perf_counter()
-        preprocessing_notes = ""
         preprocessing_vizualization_data = {}
         print(f"Preprocessing strategy: {PREPROCESSING_STRATEGY}")
 
@@ -108,6 +107,8 @@ if __name__ == "__main__":
         for job_config_file in job_config_json_files:
             datetime_start_preproc = datetime.now()
             t_preprocessing_start = time.perf_counter()
+            preprocessing_notes = ""
+
             with open(job_config_file, "r") as f:
                 job_config = json.load(f)
             session_name = job_config["session"]
@@ -157,9 +158,9 @@ if __name__ == "__main__":
             recording_hp_full = spre.highpass_filter(recording_ps_full, **preprocessing_params["highpass_filter"])
             preprocessing_vizualization_data[recording_name]["timeseries"] = {}
             preprocessing_vizualization_data[recording_name]["timeseries"]["full"] = dict(
-                                                            raw=recording.to_dict(relative_to=Path(".")),
-                                                            phase_shift=recording_ps_full.to_dict(relative_to=Path(".")),
-                                                            highpass=recording_hp_full.to_dict(relative_to=Path("."))
+                                                            raw=recording.to_dict(relative_to=data_folder),
+                                                            phase_shift=recording_ps_full.to_dict(relative_to=data_folder),
+                                                            highpass=recording_hp_full.to_dict(relative_to=data_folder)
                                                         )
 
             # IBL bad channel detection
@@ -189,7 +190,7 @@ if __name__ == "__main__":
                 if preprocessing_params["remove_out_channels"]:
                     print(f"\tRemoving {len(out_channel_ids)} out channels")
                     recording_rm_out = recording_hp_full.remove_channels(out_channel_ids)
-                    preprocessing_notes += f"{recording_name}:\n- Removed {len(out_channel_ids)} outside of the brain."
+                    preprocessing_notes += f"\n- Removed {len(out_channel_ids)} outside of the brain."
                 else:
                     recording_rm_out = recording_hp_full
 
@@ -199,9 +200,9 @@ if __name__ == "__main__":
                 recording_interp = spre.interpolate_bad_channels(recording_rm_out, bad_channel_ids)
                 recording_hp_spatial = spre.highpass_spatial_filter(recording_interp, **preprocessing_params["highpass_spatial_filter"])
                 preprocessing_vizualization_data[recording_name]["timeseries"]["proc"] = dict(
-                                                                highpass=recording_rm_out.to_dict(relative_to=Path(".")),
-                                                                cmr=recording_processed_cmr.to_dict(relative_to=Path(".")),
-                                                                highpass_spatial=recording_hp_spatial.to_dict(relative_to=Path("."))
+                                                                highpass=recording_rm_out.to_dict(relative_to=data_folder),
+                                                                cmr=recording_processed_cmr.to_dict(relative_to=data_folder),
+                                                                highpass_spatial=recording_hp_spatial.to_dict(relative_to=data_folder)
                                                             )
 
                 preproc_strategy = preprocessing_params["preprocessing_strategy"]
@@ -215,11 +216,12 @@ if __name__ == "__main__":
                     recording_processed = recording_processed.remove_channels(bad_channel_ids)
                     preprocessing_notes += f"\n- Removed {len(bad_channel_ids)} bad channels after preprocessing.\n"
                 recording_saved = recording_processed.save(folder=preprocessed_output_folder / recording_name)
+                recording_processed.dump_to_json(preprocessed_output_folder / f"{recording_name}.json", relative_to=data_folder)
                 recording_drift = recording_saved
 
                 # store recording for drift visualization
                 preprocessing_vizualization_data[recording_name]["drift"] = dict(
-                                                        recording=recording_drift.to_dict(relative_to=Path("."))
+                                                        recording=recording_drift.to_dict(relative_to=data_folder)
                                                     )
                 with open(preprocessed_viz_folder / f"{recording_name}.json", "w") as f:
                     json.dump(check_json(preprocessing_vizualization_data), f, indent=4)
@@ -230,6 +232,9 @@ if __name__ == "__main__":
 
             # save params in output
             preprocessing_params["recording_name"] = recording_name
+            preprocessing_outputs = dict(
+                channel_labels=channel_labels,
+            )
             preprocessing_process = DataProcess(
                     name="Ephys preprocessing",
                     version=VERSION, # either release or git commit
