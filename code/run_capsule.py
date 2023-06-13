@@ -96,8 +96,7 @@ if __name__ == "__main__":
     if len(job_config_json_files) > 0:
         ####### PREPROCESSING #######
         print("\n\nPREPROCESSING")
-        datetime_start_preproc = datetime.now()
-        t_preprocessing_start = time.perf_counter()
+        t_preprocessing_start_all = time.perf_counter()
         preprocessing_notes = ""
         preprocessing_vizualization_data = {}
         print(f"Preprocessing strategy: {PREPROCESSING_STRATEGY}")
@@ -107,6 +106,8 @@ if __name__ == "__main__":
         preprocessed_viz_folder.mkdir(exist_ok=True)
 
         for job_config_file in job_config_json_files:
+            datetime_start_preproc = datetime.now()
+            t_preprocessing_start = time.perf_counter()
             with open(job_config_file, "r") as f:
                 job_config = json.load(f)
             session_name = job_config["session"]
@@ -224,25 +225,26 @@ if __name__ == "__main__":
                     json.dump(check_json(preprocessing_vizualization_data), f, indent=4)
                 
 
-        t_preprocessing_end = time.perf_counter()
-        elapsed_time_preprocessing = np.round(t_preprocessing_end - t_preprocessing_start, 2)
+            t_preprocessing_end = time.perf_counter()
+            elapsed_time_preprocessing = np.round(t_preprocessing_end - t_preprocessing_start, 2)
 
-        # save params in output
-        preprocessing_params["recording_name"] = recording_name
-        preprocessing_process = DataProcess(
-                name="Ephys preprocessing",
-                version=VERSION, # either release or git commit
-                start_date_time=datetime_start_preproc,
-                end_date_time=datetime_start_preproc + timedelta(seconds=np.floor(elapsed_time_preprocessing)),
-                input_location=str(data_folder),
-                output_location=str(results_folder),
-                code_url=URL,
-                parameters=preprocessing_params,
-                notes=preprocessing_notes
-            )
-        with open(preprocessing_output_process_json, "w") as f:
-            f.write(preprocessing_process.json(indent=3))
+            # save params in output
+            preprocessing_params["recording_name"] = recording_name
+            preprocessing_process = DataProcess(
+                    name="Ephys preprocessing",
+                    version=VERSION, # either release or git commit
+                    start_date_time=datetime_start_preproc,
+                    end_date_time=datetime_start_preproc + timedelta(seconds=np.floor(elapsed_time_preprocessing)),
+                    input_location=str(data_folder),
+                    output_location=str(results_folder),
+                    code_url=URL,
+                    parameters=preprocessing_params,
+                    notes=preprocessing_notes
+                )
+            with open(preprocessing_output_process_json, "w") as f:
+                f.write(preprocessing_process.json(indent=3))
+        
+        t_preprocessing_end_all = time.perf_counter()
+        elapsed_time_preprocessing_all = np.round(t_preprocessing_end_all - t_preprocessing_start_all, 2)
 
-        print(f"PREPROCESSING time: {elapsed_time_preprocessing}s")
-
-
+        print(f"PREPROCESSING time: {elapsed_time_preprocessing_all}s")
