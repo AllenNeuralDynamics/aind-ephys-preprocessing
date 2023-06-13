@@ -156,9 +156,9 @@ if __name__ == "__main__":
             recording_hp_full = spre.highpass_filter(recording_ps_full, **preprocessing_params["highpass_filter"])
             preprocessing_vizualization_data[recording_name]["timeseries"] = {}
             preprocessing_vizualization_data[recording_name]["timeseries"]["full"] = dict(
-                                                            raw=recording.to_dict(),
-                                                            phase_shift=recording_ps_full.to_dict(),
-                                                            highpass=recording_hp_full.to_dict()
+                                                            raw=recording.to_dict(relative_to=Path(".")),
+                                                            phase_shift=recording_ps_full.to_dict(relative_to=Path(".")),
+                                                            highpass=recording_hp_full.to_dict(relative_to=Path("."))
                                                         )
 
             # IBL bad channel detection
@@ -198,9 +198,9 @@ if __name__ == "__main__":
                 recording_interp = spre.interpolate_bad_channels(recording_rm_out, bad_channel_ids)
                 recording_hp_spatial = spre.highpass_spatial_filter(recording_interp, **preprocessing_params["highpass_spatial_filter"])
                 preprocessing_vizualization_data[recording_name]["timeseries"]["proc"] = dict(
-                                                                highpass=recording_rm_out.to_dict(),
-                                                                cmr=recording_processed_cmr.to_dict(),
-                                                                highpass_spatial=recording_hp_spatial.to_dict()
+                                                                highpass=recording_rm_out.to_dict(relative_to=Path(".")),
+                                                                cmr=recording_processed_cmr.to_dict(relative_to=Path(".")),
+                                                                highpass_spatial=recording_hp_spatial.to_dict(relative_to=Path("."))
                                                             )
 
                 preproc_strategy = preprocessing_params["preprocessing_strategy"]
@@ -218,7 +218,7 @@ if __name__ == "__main__":
 
                 # store recording for drift visualization
                 preprocessing_vizualization_data[recording_name]["drift"] = dict(
-                                                        recording=recording_drift.to_dict()
+                                                        recording=recording_drift.to_dict(relative_to=Path("."))
                                                     )
                 with open(preprocessed_viz_folder / f"{recording_name}.json", "w") as f:
                     json.dump(check_json(preprocessing_vizualization_data), f, indent=4)
