@@ -233,7 +233,7 @@ if __name__ == "__main__":
             # save params in output
             preprocessing_params["recording_name"] = recording_name
             preprocessing_outputs = dict(
-                channel_labels=channel_labels,
+                channel_labels=channel_labels.tolist(),
             )
             preprocessing_process = DataProcess(
                     name="Ephys preprocessing",
@@ -244,6 +244,7 @@ if __name__ == "__main__":
                     output_location=str(results_folder),
                     code_url=URL,
                     parameters=preprocessing_params,
+                    outputs=preprocessing_outputs,
                     notes=preprocessing_notes
                 )
             with open(preprocessing_output_process_json, "w") as f:
