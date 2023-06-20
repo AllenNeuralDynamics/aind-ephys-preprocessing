@@ -78,8 +78,7 @@ if __name__ == "__main__":
         DEBUG = False
         DURATION_S = None
 
-    data_processes_folder = results_folder / "data_processes_preprocessing"
-    data_processes_folder.mkdir(exist_ok=True, parents=True)
+    data_process_prefix = "data_process_preprocessing"
 
     if DEBUG:
         print(f"DEBUG ENABLED - Only running with {DURATION_S} seconds")
@@ -99,10 +98,6 @@ if __name__ == "__main__":
         t_preprocessing_start_all = time.perf_counter()
         preprocessing_vizualization_data = {}
         print(f"Preprocessing strategy: {PREPROCESSING_STRATEGY}")
-
-        preprocessed_output_folder = results_folder / "preprocessed"
-        preprocessed_viz_folder = results_folder / "visualization_preprocessed"
-        preprocessed_viz_folder.mkdir(exist_ok=True)
 
         for job_config_file in job_config_json_files:
             datetime_start_preproc = datetime.now()
@@ -131,7 +126,10 @@ if __name__ == "__main__":
             recording_name = job_config["recording_name"]
 
             preprocessing_vizualization_data[recording_name] = {}
-            preprocessing_output_process_json = data_processes_folder / f"preprocessing_{recording_name}.json"
+            preprocessing_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
+            preprocessing_output_folder = results_folder / f"preprocessed_{recording_name}"
+            preprocessing_output_json = results_folder / f"preprocessed_{recording_name}.json"
+
 
             exp_stream_name = f"{experiment_name}_{stream_name}"
             if not compressed:
@@ -215,15 +213,15 @@ if __name__ == "__main__":
                     print(f"\tRemoving {len(bad_channel_ids)} channels after {preproc_strategy} preprocessing")
                     recording_processed = recording_processed.remove_channels(bad_channel_ids)
                     preprocessing_notes += f"\n- Removed {len(bad_channel_ids)} bad channels after preprocessing.\n"
-                recording_saved = recording_processed.save(folder=preprocessed_output_folder / recording_name)
-                recording_processed.dump_to_json(preprocessed_output_folder / f"{recording_name}.json", relative_to=data_folder)
+                recording_saved = recording_processed.save(folder=preprocessing_output_folder)
+                recording_processed.dump_to_json(preprocessing_output_json, relative_to=data_folder)
                 recording_drift = recording_saved
 
                 # store recording for drift visualization
                 preprocessing_vizualization_data[recording_name]["drift"] = dict(
                                                         recording=recording_drift.to_dict(relative_to=data_folder)
                                                     )
-                with open(preprocessed_viz_folder / f"{recording_name}.json", "w") as f:
+                with open(f"preprocessedviz_{recording_name}.json", "w") as f:
                     json.dump(check_json(preprocessing_vizualization_data), f, indent=4)
                 
 
