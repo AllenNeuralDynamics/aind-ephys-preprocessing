@@ -128,6 +128,7 @@ if __name__ == "__main__":
             preprocessing_vizualization_data[recording_name] = {}
             preprocessing_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
             preprocessing_output_folder = results_folder / f"preprocessed_{recording_name}"
+            preprocessingviz_output_file = results_folder / f"preprocessedviz_{recording_name}.json"
             preprocessing_output_json = results_folder / f"preprocessed_{recording_name}.json"
 
 
@@ -221,7 +222,7 @@ if __name__ == "__main__":
                 preprocessing_vizualization_data[recording_name]["drift"] = dict(
                                                         recording=recording_drift.to_dict(relative_to=data_folder)
                                                     )
-                with open(f"preprocessedviz_{recording_name}.json", "w") as f:
+                with open(preprocessingviz_output_file, "w") as f:
                     json.dump(check_json(preprocessing_vizualization_data), f, indent=4)
                 
 
