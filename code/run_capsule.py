@@ -174,9 +174,9 @@ if __name__ == "__main__":
             recording_hp_full = spre.highpass_filter(recording_ps_full, **preprocessing_params["highpass_filter"])
             preprocessing_vizualization_data[recording_name]["timeseries"] = {}
             preprocessing_vizualization_data[recording_name]["timeseries"]["full"] = dict(
-                                                            raw=recording.to_dict(relative_to=data_folder),
-                                                            phase_shift=recording_ps_full.to_dict(relative_to=data_folder),
-                                                            highpass=recording_hp_full.to_dict(relative_to=data_folder)
+                                                            raw=recording.to_dict(relative_to=data_folder, recursive=True),
+                                                            phase_shift=recording_ps_full.to_dict(relative_to=data_folder, recursive=True),
+                                                            highpass=recording_hp_full.to_dict(relative_to=data_folder, recursive=True)
                                                         )
 
             # IBL bad channel detection
