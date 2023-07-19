@@ -51,7 +51,10 @@ preprocessing_params = dict(
                                      apply_agc=True, 
                                      agc_window_length_s=0.01, 
                                      highpass_butter_order=3,
-                                     highpass_butter_wn=0.01)
+                                     highpass_butter_wn=0.01),
+        motion_correction=dict(compute=True,
+                               apply=False,
+                               preset="nonrigid_accurate",)
     )
 
 job_kwargs = {
@@ -65,7 +68,7 @@ results_folder = Path("../results/")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 4:
+    if len(sys.argv) == 5:
         PREPROCESSING_STRATEGY = sys.argv[1]
         if sys.argv[2] == "true":
             DEBUG = True
@@ -73,10 +76,21 @@ if __name__ == "__main__":
         else:
             DEBUG = False
             DURATION_S = None
+        if sys.argv[4] == "skip":
+            COMPUTE_MOTION = False
+            APPLY_MOTION = False
+        elif sys.argv[4] == "estimate":
+            COMPUTE_MOTION = True
+            APPLY_MOTION = False
+        else:
+            COMPUTE_MOTION = True
+            APPLY_MOTION = True
     else:
         PREPROCESSING_STRATEGY = "cmr"
         DEBUG = False
         DURATION_S = None
+        COMPUTE_MOTION = True
+        APPLY_MOTION = False
 
     data_process_prefix = "data_process_preprocessing"
 
@@ -87,6 +101,9 @@ if __name__ == "__main__":
 
     assert PREPROCESSING_STRATEGY in ["cmr", "destripe"], f"Preprocessing strategy can be 'cmr' or 'destripe'. {PREPROCESSING_STRATEGY} not supported."
     preprocessing_params["preprocessing_strategy"] = PREPROCESSING_STRATEGY
+
+    preprocessing_params["motion_correction"]["compute"] = COMPUTE_MOTION
+    preprocessing_params["motion_correction"]["apply"] = APPLY_MOTION
 
     # load job json files
     job_config_json_files = [p for p in data_folder.iterdir() if p.suffix == ".json" and "job" in p.name]
@@ -214,6 +231,18 @@ if __name__ == "__main__":
                     print(f"\tRemoving {len(bad_channel_ids)} channels after {preproc_strategy} preprocessing")
                     recording_processed = recording_processed.remove_channels(bad_channel_ids)
                     preprocessing_notes += f"\n- Removed {len(bad_channel_ids)} bad channels after preprocessing.\n"
+
+                # motion correction
+                if preprocessing_params["motion_correction"]["compute"]:
+                    preset = preprocessing_params["motion_correction"]["preset"]
+                    print(f"\tComputing motion correction with preset: {preset}")
+                    motion_folder = results_folder / f"motion_{recording_name}"
+                    recording_corrected = spre.correct_motion(recording_processed, preset=preset,
+                                                              folder=motion_folder, **job_kwargs)
+                    if preprocessing_params["motion_correction"]["apply"]:
+                        print(f"\tApplying motion correction")
+                        recording_processed = recording_corrected
+
                 recording_saved = recording_processed.save(folder=preprocessing_output_folder)
                 recording_processed.dump_to_json(preprocessing_output_json, relative_to=data_folder)
                 recording_drift = recording_saved
