@@ -21,7 +21,6 @@ import spikeinterface.preprocessing as spre
 from spikeinterface.core.core_tools import check_json
 
 # AIND
-from aind_data_schema import Processing
 from aind_data_schema.processing import DataProcess
 
 URL = "https://github.com/AllenNeuralDynamics/aind-capsule-ephys-preprocessing"
