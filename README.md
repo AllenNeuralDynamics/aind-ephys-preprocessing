@@ -71,5 +71,5 @@ The output of this capsule is the following:
 - `results/motion_{recording_name}.json` file, containing the motion estimation data (if `drift` is `estimate` or `apply`)
 - `results/preprocessed_{recording_name}.json` file, containing the JSON file to reload the processing chain
 - `results/preprocessedviz_{recording_name}.json` file, all the information required to make a visualization of the preprocessing downstream
-- `results/data_procress_preprocessing_{recording_name}.json` file, a JSON file containing a `DataProcess` object from the [aind-data-schema](https://aind-data-schema.readthedocs.io/en/stable/) package.
+- `results/data_process_preprocessing_{recording_name}.json` file, a JSON file containing a `DataProcess` object from the [aind-data-schema](https://aind-data-schema.readthedocs.io/en/stable/) package.
 
