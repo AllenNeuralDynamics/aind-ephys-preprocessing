@@ -123,7 +123,10 @@ if __name__ == "__main__":
             with open(job_config_file, "r") as f:
                 job_config = json.load(f)
             session_name = job_config["session"]
-            session = data_folder / session_name
+            if session_name is not None:
+                session = data_folder / session_name
+            else:
+                session = data_folder
             assert session.is_dir(), f"Could not find {session_name} in data folder"
 
             ecephys_full_folder = session / "ecephys"
