@@ -122,12 +122,14 @@ if __name__ == "__main__":
 
             with open(job_config_file, "r") as f:
                 job_config = json.load(f)
-            session_name = job_config["session"]
-            if session_name is not None:
-                session = data_folder / session_name
-            else:
-                session = data_folder
-            assert session.is_dir(), f"Could not find {session_name} in data folder"
+            session_name = job_config["session_name"]
+            session_folder_path = job_config["session_folder_path"]
+
+            session = data_folder / session_folder_path
+            assert session.is_dir(), (
+                f"Could not find {session_name} in {str((data_folder / session_folder_path).resolve())}. "
+                f"Make sure mapping is correct!"
+            )
 
             ecephys_full_folder = session / "ecephys"
             ecephys_compressed_folder = session / "ecephys_compressed"
