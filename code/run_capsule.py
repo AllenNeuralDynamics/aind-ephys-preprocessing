@@ -57,7 +57,7 @@ preprocessing_params = dict(
     )
 
 n_jobs_co = os.getenv('CO_CPUS')
-n_jobs = n_jobs_co if n_jobs_co is not None else -1
+n_jobs = int(n_jobs_co) if n_jobs_co is not None else -1
 
 job_kwargs = {
     'n_jobs': n_jobs_co,
