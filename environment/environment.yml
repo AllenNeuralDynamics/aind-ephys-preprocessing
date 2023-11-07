@@ -1,0 +1,8 @@
+environment_version: 1
+credentials:
+- type: aws
+  id: 8oO16UdA8eVeLh
+  description: My_Credentials
+  access_key_id: AWS_ACCESS_KEY_ID
+  secret_access_key: AWS_SECRET_ACCESS_KEY
+  region: AWS_DEFAULT_REGION
