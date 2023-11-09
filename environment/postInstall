@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-set -e
-
-# install spikeinterface
-pip install -U --no-cache-dir spikeinterface[full]==0.99.0
