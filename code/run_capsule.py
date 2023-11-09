@@ -305,7 +305,7 @@ if __name__ == "__main__":
             )
             preprocessing_process = DataProcess(
                 name="Ephys preprocessing",
-                version=VERSION,  # either release or git commit
+                software_version=VERSION,  # either release or git commit
                 start_date_time=datetime_start_preproc,
                 end_date_time=datetime_start_preproc + timedelta(seconds=np.floor(elapsed_time_preprocessing)),
                 input_location=str(data_folder),
