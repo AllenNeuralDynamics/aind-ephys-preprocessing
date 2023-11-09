@@ -182,6 +182,7 @@ if __name__ == "__main__":
             print(f"Preprocessing recording: {recording_name}")
             print(f"\tDuration: {np.round(recording.get_total_duration(), 2)} s")
 
+            preprocessing_vizualization_data[recording_name]["timeseries"] = dict()
             preprocessing_vizualization_data[recording_name]["timeseries"]["full"] = dict(raw=recording)
             # maybe a recording is from a different source and it doesn't need to be phase shifted
             if "inter_sample_shift" in recording.get_property_keys():
