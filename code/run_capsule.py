@@ -183,19 +183,21 @@ if __name__ == "__main__":
             print(f"\tDuration: {np.round(recording.get_total_duration(), 2)} s")
 
             preprocessing_vizualization_data[recording_name]["timeseries"] = dict()
-            preprocessing_vizualization_data[recording_name]["timeseries"]["full"] = dict(raw=recording)
+            preprocessing_vizualization_data[recording_name]["timeseries"]["full"] = dict(
+                raw=recording.to_dict(relative_to=data_folder, recursive=True)
+            )
             # maybe a recording is from a different source and it doesn't need to be phase shifted
             if "inter_sample_shift" in recording.get_property_keys():
                 recording_ps_full = spre.phase_shift(recording, **preprocessing_params["phase_shift"])
                 preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
-                    dict(phase_shift=recording_ps_full)
+                    dict(phase_shift=recording_ps_full.to_dict(relative_to=data_folder, recursive=True))
                 )
             else:
                 recording_ps_full = recording
 
             recording_hp_full = spre.highpass_filter(recording_ps_full, **preprocessing_params["highpass_filter"])
             preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
-                dict(highpass=recording_hp_full)
+                dict(highpass=recording_hp_full.to_dict(relative_to=data_folder, recursive=True))
             )
 
             if recording.get_total_duration() < preprocessing_params["min_preprocessing_duration"] and not DEBUG:
