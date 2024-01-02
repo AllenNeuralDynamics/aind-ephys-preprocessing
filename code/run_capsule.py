@@ -5,6 +5,10 @@ warnings.filterwarnings("ignore")
 # GENERAL IMPORTS
 import os
 
+# this is needed to limit the number of scipy threads 
+# and let spikeinterface handle parallelization
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+
 import argparse
 import numpy as np
 from pathlib import Path
@@ -27,7 +31,7 @@ URL = "https://github.com/AllenNeuralDynamics/aind-ephys-preprocessing"
 VERSION = "0.1.0"
 
 preprocessing_params = dict(
-    preprocessing_strategy="cmr",  # 'destripe' or 'cmr'
+    denoising_strategy="cmr",  # 'destripe' or 'cmr'
     min_preprocessing_duration=120,  # if less than this duration, processing is skipped (probably a test recording)
     highpass_filter=dict(freq_min=300.0, margin_ms=5.0),
     phase_shift=dict(margin_ms=100.0),
@@ -141,8 +145,9 @@ if __name__ == "__main__":
     REMOVE_OUT_CHANNELS = False if args.no_remove_out_channels else args.static_remove_out_channels == "true"
     REMOVE_BAD_CHANNELS = False if args.no_remove_bad_channels else args.static_remove_bad_channels == "true"
     MAX_BAD_CHANNEL_FRACTION = float(args.max_bad_channel_fraction or args.static_max_bad_channel_fraction)
-    COMPUTE_MOTION = True if args.motion != "skip" else False
-    APPLY_MOTION = True if args.motion == "apply" else False
+    motion_arg = args.motion or args.static_motion
+    COMPUTE_MOTION = True if motion_arg != "skip" else False
+    APPLY_MOTION = True if motion_arg == "apply" else False
     DEBUG_DURATION = float(args.debug_duration or args.static_debug_duration)
 
     data_process_prefix = "data_process_preprocessing"
@@ -151,6 +156,7 @@ if __name__ == "__main__":
     print(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
     print(f"\tREMOVE_OUT_CHANNELS: {REMOVE_OUT_CHANNELS}")
     print(f"\tREMOVE_BAD_CHANNELS: {REMOVE_BAD_CHANNELS}")
+    print(f"\tMAX BAD CHANNEL FRACTION: {MAX_BAD_CHANNEL_FRACTION}")
     print(f"\tCOMPUTE_MOTION: {COMPUTE_MOTION}")
     print(f"\tAPPLY_MOTION: {APPLY_MOTION}")
 
@@ -159,7 +165,7 @@ if __name__ == "__main__":
 
     si.set_global_job_kwargs(**job_kwargs)
 
-    preprocessing_params["preprocessing_strategy"] = DENOISING_STRATEGY
+    preprocessing_params["denoising_strategy"] = DENOISING_STRATEGY
     preprocessing_params["remove_out_channels"] = REMOVE_OUT_CHANNELS
     preprocessing_params["remove_bad_channels"] = REMOVE_BAD_CHANNELS
     preprocessing_params["max_bad_channel_fraction"] = MAX_BAD_CHANNEL_FRACTION
@@ -175,7 +181,6 @@ if __name__ == "__main__":
         print("\n\nPREPROCESSING")
         t_preprocessing_start_all = time.perf_counter()
         preprocessing_vizualization_data = {}
-        print(f"Preprocessing strategy: {DENOISING_STRATEGY}")
 
         for job_config_file in job_config_json_files:
             datetime_start_preproc = datetime.now()
@@ -280,7 +285,7 @@ if __name__ == "__main__":
                 all_bad_channel_ids = np.concatenate((dead_channel_ids, noise_channel_ids, out_channel_ids))
 
                 skip_processing = False
-                max_bad_channel_fraction = preprocessing_params["MAX_BAD_CHANNEL_FRACTION"]
+                max_bad_channel_fraction = preprocessing_params["max_bad_channel_fraction"]
                 if len(all_bad_channel_ids) >= int(max_bad_channel_fraction * recording.get_num_channels()):
                     print(
                         f"\tMore than {max_bad_channel_fraction * 100}% bad channels ({len(all_bad_channel_ids)}). "
@@ -313,14 +318,14 @@ if __name__ == "__main__":
                         highpass_spatial=recording_hp_spatial.to_dict(relative_to=data_folder, recursive=True),
                     )
 
-                    preproc_strategy = preprocessing_params["preprocessing_strategy"]
-                    if preproc_strategy == "cmr":
+                    denoising_strategy = preprocessing_params["denoising_strategy"]
+                    if denoising_strategy == "cmr":
                         recording_processed = recording_processed_cmr
                     else:
                         recording_processed = recording_hp_spatial
 
                     if preprocessing_params["remove_bad_channels"]:
-                        print(f"\tRemoving {len(bad_channel_ids)} channels after {preproc_strategy} preprocessing")
+                        print(f"\tRemoving {len(bad_channel_ids)} channels after {denoising_strategy} preprocessing")
                         recording_processed = recording_processed.remove_channels(bad_channel_ids)
                         preprocessing_notes += f"\n- Removed {len(bad_channel_ids)} bad channels after preprocessing.\n"
 
