@@ -81,7 +81,6 @@ data_folder = Path("../data/")
 scratch_folder = Path("../scratch/")
 results_folder = Path("../results/")
 
-job_kwargs = dict(n_jobs=-1, progress_bar=True)
 si.set_global_job_kwargs(**job_kwargs)
 
 
