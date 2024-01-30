@@ -78,7 +78,7 @@ max_bad_channel_fraction_group.add_argument(
 motion_correction_group = parser.add_mutually_exclusive_group()
 motion_correction_help = "How to deal with motion correction. Can be 'skip', 'compute', or 'apply'"
 motion_correction_group.add_argument("--motion", choices=["skip", "compute", "apply"], help=motion_correction_help)
-motion_correction_group.add_argument("static_motion", nargs="?", default="compute", help=motion_correction_help)
+motion_correction_group.add_argument("static_motion", nargs="?", default="skip", help=motion_correction_help)
 
 debug_duration_group = parser.add_mutually_exclusive_group()
 debug_duration_help = (
@@ -326,7 +326,7 @@ if __name__ == "__main__":
                         print(f"\tComputing motion correction with preset: {preset}")
                         motion_folder = results_folder / f"motion_{recording_name}"
                         recording_corrected = spre.correct_motion(
-                            recording_processed, preset=preset, folder=motion_folder, **job_kwargs
+                            recording_processed, preset=preset, folder=motion_folder
                         )
                         if preprocessing_params["motion_correction"]["apply"]:
                             print(f"\tApplying motion correction")
