@@ -37,5 +37,8 @@
             "highpass_butter_order": 3,
             "highpass_butter_wn": 0.01
         }
+    },
+    "motion_correction": {
+        "preset": "nonrigid_accurate"
     }
 }

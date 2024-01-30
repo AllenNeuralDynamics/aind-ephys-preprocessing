@@ -158,8 +158,9 @@ if __name__ == "__main__":
     preprocessing_params["remove_out_channels"] = REMOVE_OUT_CHANNELS
     preprocessing_params["remove_bad_channels"] = REMOVE_BAD_CHANNELS
     preprocessing_params["max_bad_channel_fraction"] = MAX_BAD_CHANNEL_FRACTION
-    preprocessing_params["motion_correction"]["compute"] = COMPUTE_MOTION
-    preprocessing_params["motion_correction"]["apply"] = APPLY_MOTION
+    motion_params = preprocessing_params["motion_correction"]
+    motion_params["motion_correction"]["compute"] = COMPUTE_MOTION
+    motion_params["motion_correction"]["apply"] = APPLY_MOTION
 
     # load job json files
     job_config_json_files = [p for p in data_folder.iterdir() if p.suffix == ".json" and "job" in p.name]
@@ -319,14 +320,14 @@ if __name__ == "__main__":
                         preprocessing_notes += f"\n- Removed {len(bad_channel_ids)} bad channels after preprocessing.\n"
 
                     # motion correction
-                    if preprocessing_params["motion_correction"]["compute"]:
-                        preset = preprocessing_params["motion_correction"]["preset"]
+                    if motion_params["compute"]:
+                        preset = motion_params["preset"]
                         print(f"\tComputing motion correction with preset: {preset}")
                         motion_folder = results_folder / f"motion_{recording_name}"
                         recording_corrected = spre.correct_motion(
                             recording_processed, preset=preset, folder=motion_folder
                         )
-                        if preprocessing_params["motion_correction"]["apply"]:
+                        if motion_params["apply"]:
                             print(f"\tApplying motion correction")
                             recording_processed = recording_corrected
 
