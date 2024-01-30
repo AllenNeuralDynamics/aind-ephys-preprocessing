@@ -59,7 +59,7 @@ preprocessing_params = dict(
     motion_correction=dict(
         compute=True,
         apply=False,
-        preset="nonrigid_fast_and_accurate",
+        preset="nonrigid_accurate",
     ),
 )
 
@@ -334,7 +334,7 @@ if __name__ == "__main__":
                         print(f"\tComputing motion correction with preset: {preset}")
                         motion_folder = results_folder / f"motion_{recording_name}"
                         recording_corrected = spre.correct_motion(
-                            recording_processed, preset=preset, folder=motion_folder, **job_kwargs
+                            recording_processed, preset=preset, folder=motion_folder
                         )
                         if preprocessing_params["motion_correction"]["apply"]:
                             print(f"\tApplying motion correction")
