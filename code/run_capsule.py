@@ -159,8 +159,8 @@ if __name__ == "__main__":
     preprocessing_params["remove_bad_channels"] = REMOVE_BAD_CHANNELS
     preprocessing_params["max_bad_channel_fraction"] = MAX_BAD_CHANNEL_FRACTION
     motion_params = preprocessing_params["motion_correction"]
-    motion_params["motion_correction"]["compute"] = COMPUTE_MOTION
-    motion_params["motion_correction"]["apply"] = APPLY_MOTION
+    motion_params["compute"] = COMPUTE_MOTION
+    motion_params["apply"] = APPLY_MOTION
 
     # load job json files
     job_config_json_files = [p for p in data_folder.iterdir() if p.suffix == ".json" and "job" in p.name]
