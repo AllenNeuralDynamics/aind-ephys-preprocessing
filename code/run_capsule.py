@@ -13,7 +13,6 @@ import argparse
 import numpy as np
 from pathlib import Path
 import json
-import sys
 import time
 from datetime import datetime, timedelta
 
@@ -30,60 +29,13 @@ from aind_data_schema.core.processing import DataProcess
 URL = "https://github.com/AllenNeuralDynamics/aind-ephys-preprocessing"
 VERSION = "0.1.0"
 
-preprocessing_params = dict(
-    denoising_strategy="cmr",  # 'destripe' or 'cmr'
-    min_preprocessing_duration=120,  # if less than this duration, processing is skipped (probably a test recording)
-    highpass_filter=dict(freq_min=300.0, margin_ms=5.0),
-    phase_shift=dict(margin_ms=100.0),
-    detect_bad_channels=dict(
-        method="coherence+psd",
-        dead_channel_threshold=-0.5,
-        noisy_channel_threshold=1.0,
-        outside_channel_threshold=-0.3,
-        n_neighbors=11,
-        seed=0,
-    ),
-    remove_out_channels=True,
-    remove_bad_channels=True,
-    max_bad_channel_fraction=0.5,  # above this fraction, processing is skipped
-    common_reference=dict(reference="global", operator="median"),
-    highpass_spatial_filter=dict(
-        n_channel_pad=60,
-        n_channel_taper=None,
-        direction="y",
-        apply_agc=True,
-        agc_window_length_s=0.01,
-        highpass_butter_order=3,
-        highpass_butter_wn=0.01,
-    ),
-    motion_correction=dict(
-        compute=True,
-        apply=False,
-        preset="nonrigid_accurate",
-    ),
-)
 
-n_jobs_co = os.getenv("CO_CPUS")
-n_jobs = int(n_jobs_co) if n_jobs_co is not None else -1
-
-job_kwargs = {"n_jobs": n_jobs, "chunk_duration": "1s", "progress_bar": False}
-
-data_folder = Path("../data/")
-results_folder = Path("../results/")
-
-
-# filter and resample LFP
-lfp_filter_kwargs = dict(freq_min=0.1, freq_max=500)
-lfp_sampling_rate = 2500
-
-# default event line from open ephys
 data_folder = Path("../data/")
 scratch_folder = Path("../scratch/")
 results_folder = Path("../results/")
 
-si.set_global_job_kwargs(**job_kwargs)
 
-
+# define argument parser
 parser = argparse.ArgumentParser(description="Preprocess AIND Neurpixels data")
 
 debug_group = parser.add_mutually_exclusive_group()
@@ -135,6 +87,23 @@ debug_duration_help = (
 debug_duration_group.add_argument("--debug-duration", default=30, help=debug_duration_help)
 debug_duration_group.add_argument("static_debug_duration", nargs="?", default="30", help=debug_duration_help)
 
+n_jobs_group = parser.add_mutually_exclusive_group()
+n_jobs_help = (
+    "Duration of clipped recording in debug mode. Default is 30 seconds. Only used if debug is enabled"
+)
+n_jobs_help = (
+    "Number of jobs to use for parallel processing. Default is -1 (all available cores). "
+    "It can also be a float between 0 and 1 to use a fraction of available cores"
+)
+n_jobs_group.add_argument("static_n_jobs", nargs="?", default="-1", help=n_jobs_help)
+n_jobs_group.add_argument("--n-jobs", default="-1", help=n_jobs_help)
+
+params_group = parser.add_mutually_exclusive_group()
+params_file_help = "Optional json file with parameters"
+params_group.add_argument("static_params_file", nargs="?", default=None, help=params_file_help)
+params_group.add_argument("--params-file", default=None, help=params_file_help)
+params_group.add_argument("--params-str", default=None, help="Optional json string with parameters")
+
 
 if __name__ == "__main__":
     args = parser.parse_args()
@@ -143,13 +112,20 @@ if __name__ == "__main__":
     DENOISING_STRATEGY = args.denoising or args.static_denoising
     REMOVE_OUT_CHANNELS = False if args.no_remove_out_channels else args.static_remove_out_channels == "true"
     REMOVE_BAD_CHANNELS = False if args.no_remove_bad_channels else args.static_remove_bad_channels == "true"
-    MAX_BAD_CHANNEL_FRACTION = float(args.max_bad_channel_fraction or args.static_max_bad_channel_fraction)
+    MAX_BAD_CHANNEL_FRACTION = float(args.static_max_bad_channel_fraction or args.max_bad_channel_fraction)
     motion_arg = args.motion or args.static_motion
     COMPUTE_MOTION = True if motion_arg != "skip" else False
     APPLY_MOTION = True if motion_arg == "apply" else False
-    DEBUG_DURATION = float(args.debug_duration or args.static_debug_duration)
+    DEBUG_DURATION = float(args.static_debug_duration or args.debug_duration)
 
-    data_process_prefix = "data_process_preprocessing"
+    N_JOBS = args.static_n_jobs or args.n_jobs
+    N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
+    PARAMS_FILE = args.static_params_file or args.params_file
+    PARAMS_STR = args.params_str
+
+    # Use CO_CPUS env variable if available
+    N_JOBS_CO = os.getenv("CO_CPUS")
+    N_JOBS = int(N_JOBS_CO) if N_JOBS_CO is not None else N_JOBS
 
     print(f"Running preprocessing with the following parameters:")
     print(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
@@ -158,12 +134,28 @@ if __name__ == "__main__":
     print(f"\tMAX BAD CHANNEL FRACTION: {MAX_BAD_CHANNEL_FRACTION}")
     print(f"\tCOMPUTE_MOTION: {COMPUTE_MOTION}")
     print(f"\tAPPLY_MOTION: {APPLY_MOTION}")
+    print(f"\tN_JOBS: {N_JOBS}")
 
     if DEBUG:
         print(f"\nDEBUG ENABLED - Only running with {DEBUG_DURATION} seconds\n")
 
+    if PARAMS_FILE is not None:
+        print(f"\nUsing custom parameter file: {PARAMS_FILE}")
+        with open(PARAMS_FILE, "r") as f:
+            processing_params = json.load(f)
+    elif PARAMS_STR is not None:
+        processing_params = json.loads(PARAMS_STR)
+    else:
+        with open("params.json", "r") as f:
+            processing_params = json.load(f)
+
+    data_process_prefix = "data_process_preprocessing"
+
+    job_kwargs = processing_params["job_kwargs"]
+    job_kwargs["n_jobs"] = N_JOBS
     si.set_global_job_kwargs(**job_kwargs)
 
+    preprocessing_params = processing_params["preprocessing"]
     preprocessing_params["denoising_strategy"] = DENOISING_STRATEGY
     preprocessing_params["remove_out_channels"] = REMOVE_OUT_CHANNELS
     preprocessing_params["remove_bad_channels"] = REMOVE_BAD_CHANNELS
