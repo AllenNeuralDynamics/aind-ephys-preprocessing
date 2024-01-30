@@ -80,6 +80,17 @@ motion_correction_help = "How to deal with motion correction. Can be 'skip', 'co
 motion_correction_group.add_argument("--motion", choices=["skip", "compute", "apply"], help=motion_correction_help)
 motion_correction_group.add_argument("static_motion", nargs="?", default="skip", help=motion_correction_help)
 
+motion_preset_group = parser.add_mutually_exclusive_group()
+motion_preset_help = (
+    "What motion preset to use. Can be 'nonrigid_accurate', 'kilosort_like', or 'nonrigid_fast_and_accurate'"
+)
+motion_preset_group.add_argument(
+    "--motion-preset",
+    choices=["nonrigid_accurate", "kilosort_like", "nonrigid_fast_and_accurate"],
+    help=motion_preset_help,
+)
+motion_preset_group.add_argument("static_motion_preset", nargs="?", default=None, help=motion_preset_help)
+
 debug_duration_group = parser.add_mutually_exclusive_group()
 debug_duration_help = (
     "Duration of clipped recording in debug mode. Default is 30 seconds. Only used if debug is enabled"
@@ -111,7 +122,8 @@ if __name__ == "__main__":
     REMOVE_OUT_CHANNELS = False if args.no_remove_out_channels else args.static_remove_out_channels == "true"
     REMOVE_BAD_CHANNELS = False if args.no_remove_bad_channels else args.static_remove_bad_channels == "true"
     MAX_BAD_CHANNEL_FRACTION = float(args.static_max_bad_channel_fraction or args.max_bad_channel_fraction)
-    motion_arg = args.motion or args.static_motion
+    motion_arg = args.static_motion or args.motion
+    MOTION_PRESET = args.static_motion_preset or args.motion_preset
     COMPUTE_MOTION = True if motion_arg != "skip" else False
     APPLY_MOTION = True if motion_arg == "apply" else False
     DEBUG_DURATION = float(args.static_debug_duration or args.debug_duration)
@@ -132,6 +144,7 @@ if __name__ == "__main__":
     print(f"\tMAX BAD CHANNEL FRACTION: {MAX_BAD_CHANNEL_FRACTION}")
     print(f"\tCOMPUTE_MOTION: {COMPUTE_MOTION}")
     print(f"\tAPPLY_MOTION: {APPLY_MOTION}")
+    print(f"\tMOTION PRESET: {MOTION_PRESET}")
     print(f"\tN_JOBS: {N_JOBS}")
 
     if DEBUG:
@@ -159,6 +172,7 @@ if __name__ == "__main__":
     preprocessing_params["remove_bad_channels"] = REMOVE_BAD_CHANNELS
     preprocessing_params["max_bad_channel_fraction"] = MAX_BAD_CHANNEL_FRACTION
     motion_params = processing_params["motion_correction"]
+    motion_params["preset"] = MOTION_PRESET
     motion_params["compute"] = COMPUTE_MOTION
     motion_params["apply"] = APPLY_MOTION
 
