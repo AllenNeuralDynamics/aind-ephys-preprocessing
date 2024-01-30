@@ -5,7 +5,7 @@ warnings.filterwarnings("ignore")
 # GENERAL IMPORTS
 import os
 
-# this is needed to limit the number of scipy threads 
+# this is needed to limit the number of scipy threads
 # and let spikeinterface handle parallelization
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
@@ -88,9 +88,7 @@ debug_duration_group.add_argument("--debug-duration", default=30, help=debug_dur
 debug_duration_group.add_argument("static_debug_duration", nargs="?", default="30", help=debug_duration_help)
 
 n_jobs_group = parser.add_mutually_exclusive_group()
-n_jobs_help = (
-    "Duration of clipped recording in debug mode. Default is 30 seconds. Only used if debug is enabled"
-)
+n_jobs_help = "Duration of clipped recording in debug mode. Default is 30 seconds. Only used if debug is enabled"
 n_jobs_help = (
     "Number of jobs to use for parallel processing. Default is -1 (all available cores). "
     "It can also be a float between 0 and 1 to use a fraction of available cores"
