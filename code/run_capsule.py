@@ -158,7 +158,7 @@ if __name__ == "__main__":
     preprocessing_params["remove_out_channels"] = REMOVE_OUT_CHANNELS
     preprocessing_params["remove_bad_channels"] = REMOVE_BAD_CHANNELS
     preprocessing_params["max_bad_channel_fraction"] = MAX_BAD_CHANNEL_FRACTION
-    motion_params = preprocessing_params["motion_correction"]
+    motion_params = processing_params["motion_correction"]
     motion_params["compute"] = COMPUTE_MOTION
     motion_params["apply"] = APPLY_MOTION
 
