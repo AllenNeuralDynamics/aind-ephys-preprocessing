@@ -348,15 +348,17 @@ if __name__ == "__main__":
                     recording_saved = recording_processed.save(folder=preprocessing_output_folder)
                     recording_processed.dump_to_json(preprocessing_output_json, relative_to=data_folder)
                     recording_drift = recording_saved
+                    drift_relative_folder = results_folder
 
             if skip_processing:
                 # in this case, processed timeseries will not be visualized
                 preprocessing_vizualization_data[recording_name]["timeseries"]["proc"] = None
                 recording_drift = recording_hp_full
+                drift_relative_folder = data_folder
 
             # store recording for drift visualization
             preprocessing_vizualization_data[recording_name]["drift"] = dict(
-                recording=recording_drift.to_dict(relative_to=data_folder, recursive=True)
+                recording=recording_drift.to_dict(relative_to=drift_relative_folder, recursive=True)
             )
             with open(preprocessingviz_output_file, "w") as f:
                 json.dump(check_json(preprocessing_vizualization_data), f, indent=4)
