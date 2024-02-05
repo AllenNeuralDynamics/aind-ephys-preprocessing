@@ -335,11 +335,24 @@ if __name__ == "__main__":
 
                     # motion correction
                     if motion_params["compute"]:
-                        preset = motion_params["preset"]
                         print(f"\tComputing motion correction with preset: {preset}")
+                        preset = motion_params["preset"]
+                        detect_kwargs = motion_params.get("detect_kwargs    ", {})
+                        select_kwargs = motion_params.get("select_kwargs", {})
+                        localize_peaks_kwargs = motion_params.get("localize_peaks_kwargs", {})
+                        estimate_motion_kwargs = motion_params.get("estimate_motion_kwargs", {})
+                        interpolate_motion_kwargs = motion_params.get("interpolate_motion_kwargs", {})
+
                         motion_folder = results_folder / f"motion_{recording_name}"
                         recording_corrected = spre.correct_motion(
-                            recording_processed, preset=preset, folder=motion_folder
+                            recording_processed,
+                            preset=preset,
+                            folder=motion_folder,
+                            detect_kwargs=detect_kwargs,
+                            select_kwargs=select_kwargs,
+                            localize_peaks_kwargs=localize_peaks_kwargs,
+                            estimate_motion_kwargs=estimate_motion_kwargs,
+                            interpolate_motion_kwargs=interpolate_motion_kwargs
                         )
                         if motion_params["apply"]:
                             print(f"\tApplying motion correction")

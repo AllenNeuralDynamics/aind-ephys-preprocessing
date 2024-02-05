@@ -39,6 +39,13 @@
         }
     },
     "motion_correction": {
-        "preset": "nonrigid_accurate"
+        "preset": "nonrigid_accurate",
+        "detect_kwargs": {},
+        "select_kwargs": {},
+        "localize_peaks_kwargs": {},
+        "estimate_motion_kwargs": {
+            "time_horizon_s": 120
+        },
+        "interpolate_motion_kwargs": {}
     }
 }
