@@ -243,7 +243,7 @@ if __name__ == "__main__":
             if segment_index is not None:
                 recording = si.split_recording(recording)[segment_index]
 
-            print(f"Preprocessing recording: {recording_name}")
+            print(f"Preprocessing recording: {session_name} - {recording_name}")
             print(f"\tDuration: {np.round(recording.get_total_duration(), 2)} s")
 
             preprocessing_vizualization_data[recording_name]["timeseries"] = dict()
