@@ -1,5 +1,19 @@
 metadata_version: 1
 name: Preprocess Ecephys
-description: Basic structure of a capsule to be customized as needed.
+description: |-
+  This capsule is designed to preprocess data for the AIND pipeline.
+
+  This capsule preprocessed the ephys stream with the following steps:
+
+  - Phase shift correction
+  - High-pass filtering
+  - Bad channel removal (using the method developed by IBL)
+  - Denoising: using one of the following methods
+    * Common Median Referenc (CMR)
+    * High-pass spatial filtering
+  - (optional) Drift correction (estimation and interpolation)
+tags:
+- ecephys
 authors:
 - name: AIND
+- name: Alessio Buccino
