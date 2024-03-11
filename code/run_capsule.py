@@ -270,6 +270,7 @@ if __name__ == "__main__":
                 preprocessing_notes += (
                     f"\n- Recording is too short ({recording.get_total_duration()}s). Skipping further processing\n"
                 )
+                channel_labels = None
                 skip_processing = True
             else:
                 # IBL bad channel detection
@@ -387,9 +388,10 @@ if __name__ == "__main__":
 
             # save params in output
             preprocessing_params["recording_name"] = recording_name
-            preprocessing_outputs = dict(
-                channel_labels=channel_labels.tolist(),
-            )
+            if channel_labels is not None:
+                preprocessing_outputs = dict(
+                    channel_labels=channel_labels.tolist(),
+                )
             preprocessing_process = DataProcess(
                 name="Ephys preprocessing",
                 software_version=VERSION,  # either release or git commit
