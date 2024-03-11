@@ -370,6 +370,10 @@ if __name__ == "__main__":
                 preprocessing_vizualization_data[recording_name]["timeseries"]["proc"] = None
                 recording_drift = recording_hp_full
                 drift_relative_folder = data_folder
+                # make a dummy file if too many bad channels to skip downstream processing
+                preprocessing_output_folder.mkdir()
+                error_file = preprocessing_output_folder / "error.txt"
+                error_file.write_text("Too many bad channels")
 
             # store recording for drift visualization
             preprocessing_vizualization_data[recording_name]["drift"] = dict(
