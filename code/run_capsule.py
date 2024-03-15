@@ -392,6 +392,8 @@ if __name__ == "__main__":
                 preprocessing_outputs = dict(
                     channel_labels=channel_labels.tolist(),
                 )
+            else:
+                preprocessing_outputs = dict()
             preprocessing_process = DataProcess(
                 name="Ephys preprocessing",
                 software_version=VERSION,  # either release or git commit
