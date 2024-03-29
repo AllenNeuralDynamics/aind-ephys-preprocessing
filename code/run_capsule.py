@@ -264,6 +264,10 @@ if __name__ == "__main__":
             preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
                 dict(highpass=recording_hp_full.to_dict(relative_to=data_folder, recursive=True))
             )
+            recording_notch = spre.notch_filter(recording_hp_full, **preprocessing_params["notch"])
+            preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
+                dict(notch=recording_notch.to_dict(relative_to=data_folder, recursive=True))
+            )
 
             if recording.get_total_duration() < preprocessing_params["min_preprocessing_duration"] and not DEBUG:
                 print(f"\tRecording is too short ({recording.get_total_duration()}s). Skipping further processing")
@@ -275,7 +279,7 @@ if __name__ == "__main__":
             else:
                 # IBL bad channel detection
                 _, channel_labels = spre.detect_bad_channels(
-                    recording_hp_full, **preprocessing_params["detect_bad_channels"]
+                    recording_notch, **preprocessing_params["detect_bad_channels"]
                 )
                 dead_channel_mask = channel_labels == "dead"
                 noise_channel_mask = channel_labels == "noise"
@@ -284,9 +288,9 @@ if __name__ == "__main__":
                 print(
                     f"\t\t- dead channels - {np.sum(dead_channel_mask)}\n\t\t- noise channels - {np.sum(noise_channel_mask)}\n\t\t- out channels - {np.sum(out_channel_mask)}"
                 )
-                dead_channel_ids = recording_hp_full.channel_ids[dead_channel_mask]
-                noise_channel_ids = recording_hp_full.channel_ids[noise_channel_mask]
-                out_channel_ids = recording_hp_full.channel_ids[out_channel_mask]
+                dead_channel_ids = recording_notch.channel_ids[dead_channel_mask]
+                noise_channel_ids = recording_notch.channel_ids[noise_channel_mask]
+                out_channel_ids = recording_notch.channel_ids[out_channel_mask]
 
                 all_bad_channel_ids = np.concatenate((dead_channel_ids, noise_channel_ids, out_channel_ids))
 
@@ -304,10 +308,10 @@ if __name__ == "__main__":
                 else:
                     if preprocessing_params["remove_out_channels"]:
                         print(f"\tRemoving {len(out_channel_ids)} out channels")
-                        recording_rm_out = recording_hp_full.remove_channels(out_channel_ids)
+                        recording_rm_out = recording_notch.remove_channels(out_channel_ids)
                         preprocessing_notes += f"\n- Removed {len(out_channel_ids)} outside of the brain."
                     else:
-                        recording_rm_out = recording_hp_full
+                        recording_rm_out = recording_notch
 
                     recording_processed_cmr = spre.common_reference(
                         recording_rm_out, **preprocessing_params["common_reference"]
@@ -334,6 +338,39 @@ if __name__ == "__main__":
                         print(f"\tRemoving {len(bad_channel_ids)} channels after {denoising_strategy} preprocessing")
                         recording_processed = recording_processed.remove_channels(bad_channel_ids)
                         preprocessing_notes += f"\n- Removed {len(bad_channel_ids)} bad channels after preprocessing.\n"
+
+                    # remove artifacts
+                    if preprocessing_params["apply_remove_artifacts"]:
+                        print(f"\tRemoving optical stimulation artifacts")
+                        remove_artifact_params = preprocessing_params["remove_artifacts"]
+                        # load NIDQ stream
+                        stream_name_nidq = [p.name for p in ecephys_compressed_folder.iterdir() if "NI-DAQ" in p.name][0]                        
+                        recording_nidq = se.read_zarr(ecephys_compressed_folder / stream_name_nidq)
+                        opto_channel = remove_artifact_params["nidq_channel"]
+
+                        # find rising and falling events from trace
+                        trace_with_stimuli = recording_nidq.get_traces(channel_ids=[opto_channel])
+                        trace_with_stimuli[trace_with_stimuli < remove_artifact_params["nidq_clip_threshold"]] = 0
+                        trace_with_stimuli[trace_with_stimuli > 0] = 1
+                        trace_with_stimuli = trace_with_stimuli.squeeze().astype(int)
+                        evt_triggers_nidq, = np.where(np.diff(trace_with_stimuli) != 0)
+
+                        if len(evt_triggers_nidq) > 0:
+                            print(f"\tFound {len(evt_triggers_nidq)} optical stimulation artifacts")
+                            preprocessing_notes += f"\n- Found {len(evt_triggers_nidq)} optical stimulation artifacts.\n"
+                            evt_triggers_sync = np.searchsorted(
+                                recording_processed.get_times(),
+                                recording_nidq.get_times()[evt_triggers_nidq]
+                            )
+                            recording_processed = spre.remove_artifacts(
+                                recording_processed,
+                                list_triggers=evt_triggers_sync,
+                                ms_before=remove_artifact_params["ms_before"],
+                                ms_after=remove_artifact_params["ms_before"]
+                            )
+                        else:
+                            print(f"\tFound no optical stimulation artifacts")
+                            preprocessing_notes += f"\n- Found no optical stimulation artifacts.\n"
 
                     # motion correction
                     if motion_params["compute"]:
@@ -369,7 +406,7 @@ if __name__ == "__main__":
             if skip_processing:
                 # in this case, processed timeseries will not be visualized
                 preprocessing_vizualization_data[recording_name]["timeseries"]["proc"] = None
-                recording_drift = recording_hp_full
+                recording_drift = recording_notch
                 drift_relative_folder = data_folder
                 # make a dummy file if too many bad channels to skip downstream processing
                 preprocessing_output_folder.mkdir()

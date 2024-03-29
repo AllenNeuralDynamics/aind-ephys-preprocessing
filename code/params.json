@@ -10,6 +10,10 @@
             "freq_min": 300.0,
             "margin_ms": 5.0
         },
+        "notch": {
+            "freq": 10000,
+            "q": 10
+        },
         "phase_shift": {
             "margin_ms": 100.0
         },
@@ -37,6 +41,13 @@
             "agc_window_length_s": 0.01,
             "highpass_butter_order": 3,
             "highpass_butter_wn": 0.01
+        },
+        "apply_remove_artifacts": true,
+        "remove_artifacts": {
+            "ms_before": 2,
+            "ms_after": 2, 
+            "nidq_channel": "AI0",
+            "nidq_clip_threshold": 50
         }
     },
     "motion_correction": {
