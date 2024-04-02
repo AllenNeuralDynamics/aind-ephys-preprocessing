@@ -359,8 +359,8 @@ if __name__ == "__main__":
                             print(f"\tFound {len(evt_triggers_nidq)} optical stimulation artifacts")
                             preprocessing_notes += f"\n- Found {len(evt_triggers_nidq)} optical stimulation artifacts.\n"
                             evt_triggers_sync = np.searchsorted(
-                                recording_processed.get_times(),
-                                recording_nidq.get_times()[evt_triggers_nidq]
+                                recording_processed.get_times(segment_index=segment_index),
+                                recording_nidq.get_times(segment_index=segment_index)[evt_triggers_nidq]
                             )
                             recording_processed = spre.remove_artifacts(
                                 recording_processed,
