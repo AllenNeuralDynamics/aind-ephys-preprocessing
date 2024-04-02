@@ -349,7 +349,7 @@ if __name__ == "__main__":
                         opto_channel = remove_artifact_params["nidq_channel"]
 
                         # find rising and falling events from trace
-                        trace_with_stimuli = recording_nidq.get_traces(channel_ids=[opto_channel])
+                        trace_with_stimuli = recording_nidq.get_traces(channel_ids=[opto_channel], segment_index=segment_index)
                         trace_with_stimuli[trace_with_stimuli < remove_artifact_params["nidq_clip_threshold"]] = 0
                         trace_with_stimuli[trace_with_stimuli > 0] = 1
                         trace_with_stimuli = trace_with_stimuli.squeeze().astype(int)
