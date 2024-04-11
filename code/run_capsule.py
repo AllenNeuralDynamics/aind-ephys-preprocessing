@@ -366,7 +366,7 @@ if __name__ == "__main__":
                                 recording_processed,
                                 list_triggers=evt_triggers_sync,
                                 ms_before=remove_artifact_params["ms_before"],
-                                ms_after=remove_artifact_params["ms_before"]
+                                ms_after=remove_artifact_params["ms_after"]
                             )
                         else:
                             print(f"\tFound no optical stimulation artifacts")

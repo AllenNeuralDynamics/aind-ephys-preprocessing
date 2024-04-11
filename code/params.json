@@ -44,8 +44,8 @@
         },
         "apply_remove_artifacts": true,
         "remove_artifacts": {
-            "ms_before": 2,
-            "ms_after": 2, 
+            "ms_before": 1,
+            "ms_after": 1, 
             "nidq_channel": "AI0",
             "nidq_clip_threshold": 50
         }
