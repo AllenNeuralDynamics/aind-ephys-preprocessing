@@ -343,34 +343,77 @@ if __name__ == "__main__":
                     if preprocessing_params["apply_remove_artifacts"]:
                         print(f"\tRemoving optical stimulation artifacts")
                         remove_artifact_params = preprocessing_params["remove_artifacts"]
-                        # load NIDQ stream
-                        stream_name_nidq = [p.name for p in ecephys_compressed_folder.iterdir() if "NI-DAQ" in p.name][0]                        
-                        recording_nidq = se.read_zarr(ecephys_compressed_folder / stream_name_nidq)
-                        opto_channel = remove_artifact_params["nidq_channel"]
 
-                        # find rising and falling events from trace
-                        trace_with_stimuli = recording_nidq.get_traces(channel_ids=[opto_channel], segment_index=segment_index)
-                        trace_with_stimuli[trace_with_stimuli < remove_artifact_params["nidq_clip_threshold"]] = 0
-                        trace_with_stimuli[trace_with_stimuli > 0] = 1
-                        trace_with_stimuli = trace_with_stimuli.squeeze().astype(int)
-                        evt_triggers_nidq, = np.where(np.diff(trace_with_stimuli) != 0)
+                        # check if HARP system
+                        harp_folders = [p for p in session.glob("**/HarpFolder")]
+                        evt_triggers_sync = []
+                        if len(harp_folders) == 1:
+                            behavior_data = None
+                            behavior_folders = [p for p in session.glob("**/TrainingFolder")]
+                            if len(behavior_folders) == 1:
+                                behavior_folder = behavior_folders[0]
+                                json_files = [p for p in behavior_folder.iterdir() if p.suffix == ".json"]
+                                if len(json_files) == 1:
+                                    json_file = json_files[0]
+                                    with open(json_file) as f:    
+                                        behavior_data = json.load(open(json_file))
+                            if behavior_data is not None:
+                                laser_info = behavior_data.get("Opto_dialog", None)
+                                stimulation_trigger_times = behavior_data.get("B_OptogeneticsTimeHarp", None)
+                                if laser_info is not None and stimulation_trigger_times is not None:
+                                    active_laser_ids = [
+                                        k.split("_")[1] for k, v in laser_info.items() if "Laser_" in k and v != "NA" and "calibration" not in k
+                                    ]
+                                    if len(active_laser_ids) != 1:
+                                        print("\tFound more than one active laser. Not supported!")
+                                    else:
+                                        active_laser_id = active_laser_ids[0]
+                                        pulse_durations = behavior_data[f"TP_PulseDur_{active_laser_id}"]
+                                        pulse_frequencies = behavior_data[f"TP_Frequency_{active_laser_id}"]
+                                        train_durations = behavior_data[f"TP_Duration_{active_laser_id}"]
+                                        all_stimulation_trigger_times = []
+                                        for i, st in enumerate(stimulation_trigger_times):
+                                            pulse_duration = float(pulse_durations[i])
+                                            inter_pulse_interval = 1 / float(pulse_frequencies[i])
+                                            num_pulses = int(float(train_durations[i]) / inter_pulse_interval)
 
-                        if len(evt_triggers_nidq) > 0:
-                            print(f"\tFound {len(evt_triggers_nidq)} optical stimulation artifacts")
-                            preprocessing_notes += f"\n- Found {len(evt_triggers_nidq)} optical stimulation artifacts.\n"
+                                            for i in range(num_pulses):
+                                                all_stimulation_trigger_times.extend(
+                                                    [st + i * inter_pulse_interval, st + i * inter_pulse_interval + pulse_duration]
+                                            )
+                                        evt_triggers_sync = np.searchsorted(
+                                            recording_processed.get_times(segment_index=segment_index),
+                                            all_stimulation_trigger_times
+                                        )
+                        else:
+                            # look for artifacts in NIDQ stream
+                            stream_name_nidq = [p.name for p in ecephys_compressed_folder.iterdir() if "NI-DAQ" in p.name][0]                        
+                            recording_nidq = se.read_zarr(ecephys_compressed_folder / stream_name_nidq)
+                            opto_channel = remove_artifact_params["nidq_channel"]
+
+                            # find rising and falling events from trace
+                            trace_with_stimuli = recording_nidq.get_traces(channel_ids=[opto_channel], segment_index=segment_index)
+                            trace_with_stimuli[trace_with_stimuli < remove_artifact_params["nidq_clip_threshold"]] = 0
+                            trace_with_stimuli[trace_with_stimuli > 0] = 1
+                            trace_with_stimuli = trace_with_stimuli.squeeze().astype(int)
+                            evt_triggers_nidq, = np.where(np.diff(trace_with_stimuli) != 0)
                             evt_triggers_sync = np.searchsorted(
                                 recording_processed.get_times(segment_index=segment_index),
                                 recording_nidq.get_times(segment_index=segment_index)[evt_triggers_nidq]
                             )
-                            recording_processed = spre.remove_artifacts(
-                                recording_processed,
-                                list_triggers=evt_triggers_sync,
-                                ms_before=remove_artifact_params["ms_before"],
-                                ms_after=remove_artifact_params["ms_after"]
-                            )
-                        else:
-                            print(f"\tFound no optical stimulation artifacts")
-                            preprocessing_notes += f"\n- Found no optical stimulation artifacts.\n"
+                        if len(evt_triggers_sync) > 0:
+                            print(f"\tFound {len(evt_triggers_sync)} optical stimulation artifacts")
+                            preprocessing_notes += f"\n- Found {len(evt_triggers_sync)} optical stimulation artifacts.\n"
+
+                        recording_processed = spre.remove_artifacts(
+                            recording_processed,
+                            list_triggers=evt_triggers_sync,
+                            ms_before=remove_artifact_params["ms_before"],
+                            ms_after=remove_artifact_params["ms_after"]
+                        )
+                    else:
+                        print(f"\tFound no optical stimulation artifacts")
+                        preprocessing_notes += f"\n- Found no optical stimulation artifacts.\n"
 
                     # motion correction
                     if motion_params["compute"]:
