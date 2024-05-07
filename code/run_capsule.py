@@ -14,6 +14,7 @@ import numpy as np
 from pathlib import Path
 import json
 import time
+import pandas as pd
 from datetime import datetime, timedelta
 
 # SPIKEINTERFACE
@@ -341,12 +342,21 @@ if __name__ == "__main__":
 
                     # remove artifacts
                     if preprocessing_params["apply_remove_artifacts"]:
+                        # Move to its own capsule for flexibility???
                         print(f"\tRemoving optical stimulation artifacts")
                         remove_artifact_params = preprocessing_params["remove_artifacts"]
 
+                        # instantiate stimulation variables
+                        stimulation_trigger_times = []
+                        pulse_durations = None
+                        pulse_frequencies = None
+                        train_durations = None
+                        num_pulses = None
+                        inter_pulse_intervals = None
+                        
                         # check if HARP system
                         harp_folders = [p for p in session.glob("**/HarpFolder")]
-                        evt_triggers_sync = []
+
                         if len(harp_folders) == 1:
                             behavior_data = None
                             behavior_folders = [p for p in session.glob("**/TrainingFolder")]
@@ -371,49 +381,71 @@ if __name__ == "__main__":
                                         pulse_durations = behavior_data[f"TP_PulseDur_{active_laser_id}"]
                                         pulse_frequencies = behavior_data[f"TP_Frequency_{active_laser_id}"]
                                         train_durations = behavior_data[f"TP_Duration_{active_laser_id}"]
-                                        all_stimulation_trigger_times = []
-                                        for i, st in enumerate(stimulation_trigger_times):
-                                            pulse_duration = float(pulse_durations[i])
-                                            inter_pulse_interval = 1 / float(pulse_frequencies[i])
-                                            num_pulses = int(float(train_durations[i]) / inter_pulse_interval)
-
-                                            for i in range(num_pulses):
-                                                all_stimulation_trigger_times.extend(
-                                                    [st + i * inter_pulse_interval, st + i * inter_pulse_interval + pulse_duration]
-                                            )
-                                        evt_triggers_sync = np.searchsorted(
-                                            recording_processed.get_times(segment_index=segment_index),
-                                            all_stimulation_trigger_times
-                                        )
                         else:
-                            # look for artifacts in NIDQ stream
-                            stream_name_nidq = [p.name for p in ecephys_compressed_folder.iterdir() if "NI-DAQ" in p.name][0]                        
-                            recording_nidq = se.read_zarr(ecephys_compressed_folder / stream_name_nidq)
-                            opto_channel = remove_artifact_params["nidq_channel"]
+                            # load CSV events file
+                            opto_csv_files = [
+                                p for p in ecephys_folder.iterdir() if p.name.endswith("csv") and "opto" in p.name
+                            ]
+                            if len(opto_csv_files) == 1:
+                                opto_csv_file = opto_csv_files[0]
+                                opto_df = pd.read_csv(opto_csv_file)
 
-                            # find rising and falling events from trace
-                            trace_with_stimuli = recording_nidq.get_traces(channel_ids=[opto_channel], segment_index=segment_index)
-                            trace_with_stimuli[trace_with_stimuli < remove_artifact_params["nidq_clip_threshold"]] = 0
-                            trace_with_stimuli[trace_with_stimuli > 0] = 1
-                            trace_with_stimuli = trace_with_stimuli.squeeze().astype(int)
-                            evt_triggers_nidq, = np.where(np.diff(trace_with_stimuli) != 0)
+                                # durations are in ms, we need s
+                                pulse_durations = opto_df["duration"] / 1000
+                                num_pulses = opto_df["num_pulses"]
+                                inter_pulse_intervals = opto_df["pulse_interval"] / 1000 + pulse_durations
+
+                                # read OE events
+                                events = se.read_openephys_event(ecephys_folder, block_index=0)
+                                evts = events.get_events(channel_id="PXIe-6341Digital Input Line")
+
+                                labels, counts = np.unique(evts["label"], return_counts=True)
+                                label_index, = np.where(counts == len(opto_df))
+
+                                if len(label_index) > 0:
+                                    evts_opto = evts[evts["label"] == labels[label_index]]
+                                    stimulation_trigger_times = evts_opto["time"]
+                                else:
+                                    print("\tCould not find an event channel with the right number of events!")
+                            else:
+                                print(f"Found {len(opto_csv_files)} opto CSV files. One CSv file is required.")
+
+                        if len(stimulation_trigger_times) > 0:
+                            all_stimulation_trigger_times = []
+                            for i, st in enumerate(stimulation_trigger_times):
+                                pulse_duration = float(pulse_durations[i])
+                                if inter_pulse_intervals is not None:
+                                    inter_pulse_interval = inter_pulse_intervals[i]
+                                else:
+                                    assert pulse_frequencies is not None
+                                    inter_pulse_interval = 1 / float(pulse_frequencies[i])
+                                if num_pulses is not None:
+                                    n_pulses = num_pulses[i]
+                                else:
+                                    assert train_durations is not None
+                                    n_pulses = int(float(train_durations[i]) / inter_pulse_interval)
+
+                                for i in range(n_pulses):
+                                    all_stimulation_trigger_times.extend(
+                                        [st + i * inter_pulse_interval, st + i * inter_pulse_interval + pulse_duration]
+                                )
+
                             evt_triggers_sync = np.searchsorted(
                                 recording_processed.get_times(segment_index=segment_index),
-                                recording_nidq.get_times(segment_index=segment_index)[evt_triggers_nidq]
+                                all_stimulation_trigger_times
                             )
-                        if len(evt_triggers_sync) > 0:
+
+                            recording_processed = spre.remove_artifacts(
+                                recording_processed,
+                                list_triggers=evt_triggers_sync,
+                                ms_before=remove_artifact_params["ms_before"],
+                                ms_after=remove_artifact_params["ms_after"]
+                            )
                             print(f"\tFound {len(evt_triggers_sync)} optical stimulation artifacts")
                             preprocessing_notes += f"\n- Found {len(evt_triggers_sync)} optical stimulation artifacts.\n"
-
-                        recording_processed = spre.remove_artifacts(
-                            recording_processed,
-                            list_triggers=evt_triggers_sync,
-                            ms_before=remove_artifact_params["ms_before"],
-                            ms_after=remove_artifact_params["ms_after"]
-                        )
-                    else:
-                        print(f"\tFound no optical stimulation artifacts")
-                        preprocessing_notes += f"\n- Found no optical stimulation artifacts.\n"
+                        else:
+                            print(f"\tFound no optical stimulation artifacts")
+                            preprocessing_notes += f"\n- Found no optical stimulation artifacts.\n"
 
                     # motion correction
                     if motion_params["compute"]:
