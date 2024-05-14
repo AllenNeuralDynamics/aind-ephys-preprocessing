@@ -195,28 +195,16 @@ if __name__ == "__main__":
             with open(job_config_file, "r") as f:
                 job_config = json.load(f)
             session_name = job_config["session_name"]
-            session_folder_path = job_config["session_folder_path"]
-
-            session = data_folder / session_folder_path
-            assert session.is_dir(), (
-                f"Could not find {session_name} in {str((data_folder / session_folder_path).resolve())}. "
-                f"Make sure mapping is correct!"
-            )
-
-            ecephys_full_folder = session / "ecephys"
-            ecephys_compressed_folder = session / "ecephys_compressed"
-            compressed = False
-            if ecephys_compressed_folder.is_dir():
-                compressed = True
-                ecephys_folder = session / "ecephys_clipped"
-            else:
-                ecephys_folder = ecephys_full_folder
-
-            experiment_name = job_config["experiment_name"]
-            stream_name = job_config["stream_name"]
-            block_index = job_config["block_index"]
-            segment_index = job_config["segment_index"]
             recording_name = job_config["recording_name"]
+            recording_dict = job_config["recording_dict"]
+
+            try:
+                recording = si.load_extractor(recording_dict, base_folder=data_folder)
+            except:
+                raise RuntimeError(
+                    f"Could not find load recording {recording_name} from dict. "
+                    f"Make sure mapping is correct!"
+                )
 
             skip_processing = False
             preprocessing_vizualization_data[recording_name] = {}
@@ -224,12 +212,6 @@ if __name__ == "__main__":
             preprocessing_output_folder = results_folder / f"preprocessed_{recording_name}"
             preprocessingviz_output_file = results_folder / f"preprocessedviz_{recording_name}.json"
             preprocessing_output_json = results_folder / f"preprocessed_{recording_name}.json"
-
-            exp_stream_name = f"{experiment_name}_{stream_name}"
-            if not compressed:
-                recording = se.read_openephys(ecephys_folder, stream_name=stream_name, block_index=block_index)
-            else:
-                recording = si.read_zarr(ecephys_compressed_folder / f"{exp_stream_name}.zarr")
 
             if DEBUG:
                 recording_list = []
@@ -240,9 +222,6 @@ if __name__ == "__main__":
                     )
                     recording_list.append(recording_one)
                 recording = si.append_recordings(recording_list)
-
-            if segment_index is not None:
-                recording = si.split_recording(recording)[segment_index]
 
             print(f"Preprocessing recording: {session_name} - {recording_name}")
             print(f"\tDuration: {np.round(recording.get_total_duration(), 2)} s")
