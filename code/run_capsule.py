@@ -294,14 +294,21 @@ if __name__ == "__main__":
 
                     bad_channel_ids = np.concatenate((dead_channel_ids, noise_channel_ids))
                     recording_interp = spre.interpolate_bad_channels(recording_rm_out, bad_channel_ids)
-                    recording_hp_spatial = spre.highpass_spatial_filter(
-                        recording_interp, **preprocessing_params["highpass_spatial_filter"]
-                    )
+                    # protection against short probes
+                    try:
+                        recording_hp_spatial = spre.highpass_spatial_filter(
+                            recording_interp, **preprocessing_params["highpass_spatial_filter"]
+                        )
+                    except:
+                        recording_hp_spatial = None
                     preprocessing_vizualization_data[recording_name]["timeseries"]["proc"] = dict(
                         highpass=recording_rm_out.to_dict(relative_to=data_folder, recursive=True),
                         cmr=recording_processed_cmr.to_dict(relative_to=data_folder, recursive=True),
-                        highpass_spatial=recording_hp_spatial.to_dict(relative_to=data_folder, recursive=True),
                     )
+                    if recording_hp_spatial is not None:
+                        preprocessing_vizualization_data[recording_name]["timeseries"]["proc"].update(
+                            dict(highpass_spatial=recording_hp_spatial.to_dict(relative_to=data_folder, recursive=True))
+                        )
 
                     denoising_strategy = preprocessing_params["denoising_strategy"]
                     if denoising_strategy == "cmr":
