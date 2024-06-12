@@ -100,12 +100,11 @@ debug_duration_group.add_argument("--debug-duration", default=30, help=debug_dur
 debug_duration_group.add_argument("static_debug_duration", nargs="?", default="30", help=debug_duration_help)
 
 n_jobs_group = parser.add_mutually_exclusive_group()
-n_jobs_help = "Duration of clipped recording in debug mode. Default is 30 seconds. Only used if debug is enabled"
 n_jobs_help = (
     "Number of jobs to use for parallel processing. Default is -1 (all available cores). "
     "It can also be a float between 0 and 1 to use a fraction of available cores"
 )
-n_jobs_group.add_argument("static_n_jobs", nargs="?", default="-1", help=n_jobs_help)
+n_jobs_group.add_argument("static_n_jobs", nargs="?", default=None, help=n_jobs_help)
 n_jobs_group.add_argument("--n-jobs", default="-1", help=n_jobs_help)
 
 params_group = parser.add_mutually_exclusive_group()
@@ -196,28 +195,16 @@ if __name__ == "__main__":
             with open(job_config_file, "r") as f:
                 job_config = json.load(f)
             session_name = job_config["session_name"]
-            session_folder_path = job_config["session_folder_path"]
-
-            session = data_folder / session_folder_path
-            assert session.is_dir(), (
-                f"Could not find {session_name} in {str((data_folder / session_folder_path).resolve())}. "
-                f"Make sure mapping is correct!"
-            )
-
-            ecephys_full_folder = session / "ecephys"
-            ecephys_compressed_folder = session / "ecephys_compressed"
-            compressed = False
-            if ecephys_compressed_folder.is_dir():
-                compressed = True
-                ecephys_folder = session / "ecephys_clipped"
-            else:
-                ecephys_folder = ecephys_full_folder
-
-            experiment_name = job_config["experiment_name"]
-            stream_name = job_config["stream_name"]
-            block_index = job_config["block_index"]
-            segment_index = job_config["segment_index"]
             recording_name = job_config["recording_name"]
+            recording_dict = job_config["recording_dict"]
+
+            try:
+                recording = si.load_extractor(recording_dict, base_folder=data_folder)
+            except:
+                raise RuntimeError(
+                    f"Could not find load recording {recording_name} from dict. "
+                    f"Make sure mapping is correct!"
+                )
 
             skip_processing = False
             preprocessing_vizualization_data[recording_name] = {}
@@ -225,12 +212,6 @@ if __name__ == "__main__":
             preprocessing_output_folder = results_folder / f"preprocessed_{recording_name}"
             preprocessingviz_output_file = results_folder / f"preprocessedviz_{recording_name}.json"
             preprocessing_output_json = results_folder / f"preprocessed_{recording_name}.json"
-
-            exp_stream_name = f"{experiment_name}_{stream_name}"
-            if not compressed:
-                recording = se.read_openephys(ecephys_folder, stream_name=stream_name, block_index=block_index)
-            else:
-                recording = si.read_zarr(ecephys_compressed_folder / f"{exp_stream_name}.zarr")
 
             if DEBUG:
                 recording_list = []
@@ -241,9 +222,6 @@ if __name__ == "__main__":
                     )
                     recording_list.append(recording_one)
                 recording = si.append_recordings(recording_list)
-
-            if segment_index is not None:
-                recording = si.split_recording(recording)[segment_index]
 
             print(f"Preprocessing recording: {session_name} - {recording_name}")
             print(f"\tDuration: {np.round(recording.get_total_duration(), 2)} s")
@@ -320,14 +298,21 @@ if __name__ == "__main__":
 
                     bad_channel_ids = np.concatenate((dead_channel_ids, noise_channel_ids))
                     recording_interp = spre.interpolate_bad_channels(recording_rm_out, bad_channel_ids)
-                    recording_hp_spatial = spre.highpass_spatial_filter(
-                        recording_interp, **preprocessing_params["highpass_spatial_filter"]
-                    )
+                    # protection against short probes
+                    try:
+                        recording_hp_spatial = spre.highpass_spatial_filter(
+                            recording_interp, **preprocessing_params["highpass_spatial_filter"]
+                        )
+                    except:
+                        recording_hp_spatial = None
                     preprocessing_vizualization_data[recording_name]["timeseries"]["proc"] = dict(
                         highpass=recording_rm_out.to_dict(relative_to=data_folder, recursive=True),
                         cmr=recording_processed_cmr.to_dict(relative_to=data_folder, recursive=True),
-                        highpass_spatial=recording_hp_spatial.to_dict(relative_to=data_folder, recursive=True),
                     )
+                    if recording_hp_spatial is not None:
+                        preprocessing_vizualization_data[recording_name]["timeseries"]["proc"].update(
+                            dict(highpass_spatial=recording_hp_spatial.to_dict(relative_to=data_folder, recursive=True))
+                        )
 
                     denoising_strategy = preprocessing_params["denoising_strategy"]
                     if denoising_strategy == "cmr":

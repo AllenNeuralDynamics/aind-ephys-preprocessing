@@ -9,6 +9,6 @@ RUN apt-get update \
 
 RUN pip install -U --no-cache-dir \
     aind-data-schema==0.22.1 \
-    spikeinterface[full]==0.100.0 \
+    spikeinterface[full]==0.100.7 \
     torch==2.2.0 \
     wavpack-numcodecs==0.1.5
