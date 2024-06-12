@@ -72,7 +72,7 @@ max_bad_channel_fraction_group.add_argument(
     "--max-bad-channel-fraction", default=0.5, help=max_bad_channel_fraction_help
 )
 max_bad_channel_fraction_group.add_argument(
-    "static_max_bad_channel_fraction", nargs="?", default="0.5", help=max_bad_channel_fraction_help
+    "static_max_bad_channel_fraction", nargs="?", default=None, help=max_bad_channel_fraction_help
 )
 
 motion_correction_group = parser.add_mutually_exclusive_group()
@@ -96,7 +96,7 @@ debug_duration_help = (
     "Duration of clipped recording in debug mode. Default is 30 seconds. Only used if debug is enabled"
 )
 debug_duration_group.add_argument("--debug-duration", default=30, help=debug_duration_help)
-debug_duration_group.add_argument("static_debug_duration", nargs="?", default="30", help=debug_duration_help)
+debug_duration_group.add_argument("static_debug_duration", nargs="?", default=None, help=debug_duration_help)
 
 n_jobs_group = parser.add_mutually_exclusive_group()
 n_jobs_help = (
