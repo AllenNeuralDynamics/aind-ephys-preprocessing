@@ -271,14 +271,14 @@ if __name__ == "__main__":
                 skip_processing = False
                 max_bad_channel_fraction = preprocessing_params["max_bad_channel_fraction"]
                 if len(all_bad_channel_ids) >= int(max_bad_channel_fraction * recording.get_num_channels()):
-                    print(
-                        f"\tMore than {max_bad_channel_fraction * 100}% bad channels ({len(all_bad_channel_ids)}). "
-                        f"Skipping further processing for this recording."
-                    )
-                    preprocessing_notes += (
-                        f"\n- Found {len(all_bad_channel_ids)} bad channels. Skipping further processing\n"
-                    )
-                    skip_processing = True
+                    print(f"\tMore than {max_bad_channel_fraction * 100}% bad channels ({len(all_bad_channel_ids)}). ")
+                    preprocessing_notes += f"\n- Found {len(all_bad_channel_ids)} bad channels."
+                    if preprocessing_params["remove_bad_channels"]:
+                        skip_processing = True
+                        print("\tSkipping further processing for this recording.")
+                        preprocessing_notes += f" Skipping further processing for this recording.\n"
+                    else:
+                        preprocessing_notes += "\n"
                 else:
                     if preprocessing_params["remove_out_channels"]:
                         print(f"\tRemoving {len(out_channel_ids)} out channels")
