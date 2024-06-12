@@ -10,10 +10,6 @@
             "freq_min": 300.0,
             "margin_ms": 5.0
         },
-        "notch": {
-            "freq": 10000,
-            "q": 10
-        },
         "phase_shift": {
             "margin_ms": 100.0
         },
