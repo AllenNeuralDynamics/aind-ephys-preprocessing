@@ -279,7 +279,8 @@ if __name__ == "__main__":
                         preprocessing_notes += f" Skipping further processing for this recording.\n"
                     else:
                         preprocessing_notes += "\n"
-                else:
+
+                if not skip_processing:
                     if preprocessing_params["remove_out_channels"]:
                         print(f"\tRemoving {len(out_channel_ids)} out channels")
                         recording_rm_out = recording_hp_full.remove_channels(out_channel_ids)
