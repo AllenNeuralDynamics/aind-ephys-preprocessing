@@ -145,7 +145,11 @@ if __name__ == "__main__":
     COMPUTE_MOTION = True if motion_arg != "skip" else False
     APPLY_MOTION = True if motion_arg == "apply" else False
     T_START = args.static_t_start or args.t_start
+    if isinstance(T_START, str) and T_START == "":
+        T_START = None
     T_STOP = args.static_t_stop or args.t_stop
+    if isinstance(T_STOP, str) and T_STOP == "":
+        T_STOP = None
     DEBUG_DURATION = float(args.static_debug_duration or args.debug_duration)
 
     N_JOBS = args.static_n_jobs or args.n_jobs
