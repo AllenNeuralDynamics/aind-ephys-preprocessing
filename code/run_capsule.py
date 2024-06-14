@@ -73,7 +73,7 @@ max_bad_channel_fraction_group.add_argument(
     "--max-bad-channel-fraction", default=0.5, help=max_bad_channel_fraction_help
 )
 max_bad_channel_fraction_group.add_argument(
-    "static_max_bad_channel_fraction", nargs="?", default="0.5", help=max_bad_channel_fraction_help
+    "static_max_bad_channel_fraction", nargs="?", default=None, help=max_bad_channel_fraction_help
 )
 
 motion_correction_group = parser.add_mutually_exclusive_group()
@@ -92,12 +92,30 @@ motion_preset_group.add_argument(
 )
 motion_preset_group.add_argument("static_motion_preset", nargs="?", default=None, help=motion_preset_help)
 
+t_start_group = parser.add_mutually_exclusive_group()
+t_start_help = (
+    "Start time of the recording in seconds (assumes recording starts at 0). "
+    "This parameter is ignored in case of multi-segment or multi-block recordings."
+    "Default is None (start of recording)"
+)
+t_start_group.add_argument("static_t_start", nargs="?", default=None, help=t_start_help)
+t_start_group.add_argument("--t-start", default=None, help=t_start_help)
+
+t_stop_group = parser.add_mutually_exclusive_group()
+t_stop_help = (
+    "Stop time of the recording in seconds (assumes recording starts at 0). "
+    "This parameter is ignored in case of multi-segment or multi-block recordings."
+    "Default is None (end of recording)"
+)
+t_stop_group.add_argument("static_t_stop", nargs="?", default=None, help=t_stop_help)
+t_stop_group.add_argument("--t-stop", default=None, help=t_stop_help)
+
 debug_duration_group = parser.add_mutually_exclusive_group()
 debug_duration_help = (
     "Duration of clipped recording in debug mode. Default is 30 seconds. Only used if debug is enabled"
 )
 debug_duration_group.add_argument("--debug-duration", default=30, help=debug_duration_help)
-debug_duration_group.add_argument("static_debug_duration", nargs="?", default="30", help=debug_duration_help)
+debug_duration_group.add_argument("static_debug_duration", nargs="?", default=None, help=debug_duration_help)
 
 n_jobs_group = parser.add_mutually_exclusive_group()
 n_jobs_help = (
@@ -126,6 +144,8 @@ if __name__ == "__main__":
     MOTION_PRESET = args.static_motion_preset or args.motion_preset
     COMPUTE_MOTION = True if motion_arg != "skip" else False
     APPLY_MOTION = True if motion_arg == "apply" else False
+    T_START = args.static_t_start or args.t_start
+    T_STOP = args.static_t_stop or args.t_stop
     DEBUG_DURATION = float(args.static_debug_duration or args.debug_duration)
 
     N_JOBS = args.static_n_jobs or args.n_jobs
@@ -145,6 +165,8 @@ if __name__ == "__main__":
     print(f"\tCOMPUTE_MOTION: {COMPUTE_MOTION}")
     print(f"\tAPPLY_MOTION: {APPLY_MOTION}")
     print(f"\tMOTION PRESET: {MOTION_PRESET}")
+    print(f"\tT_START: {T_START}")
+    print(f"\tT_STOP: {T_STOP}")
     print(f"\tN_JOBS: {N_JOBS}")
 
     if DEBUG:
@@ -223,6 +245,20 @@ if __name__ == "__main__":
                 recording = si.append_recordings(recording_list)
 
             print(f"Preprocessing recording: {session_name} - {recording_name}")
+
+            if T_START is not None or T_STOP is not None:
+                if recording.get_num_segments() > 1:
+                    print(f"\tRecording has multiple segments. Ignoring T_START and T_STOP")
+                else:
+                    if T_START is None:
+                        T_START = 0
+                    if T_STOP is None:
+                        T_STOP = recording.get_duration()
+                    print(f"\tClipping recording to {T_START}-{T_STOP} s")
+                    start_frame = int(float(T_START) * recording.get_sampling_frequency())
+                    end_frame = int(float(T_STOP) * recording.get_sampling_frequency() + 1)
+                    recording = recording.frame_slice(start_frame=start_frame, end_frame=end_frame)
+
             print(f"\tDuration: {np.round(recording.get_total_duration(), 2)} s")
 
             preprocessing_vizualization_data[recording_name]["timeseries"] = dict()
