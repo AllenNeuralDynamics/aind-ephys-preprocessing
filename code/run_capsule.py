@@ -14,6 +14,7 @@ import numpy as np
 from pathlib import Path
 import json
 import time
+import pandas as pd
 from datetime import datetime, timedelta
 
 # SPIKEINTERFACE
@@ -223,8 +224,7 @@ if __name__ == "__main__":
                 recording = si.load_extractor(recording_dict, base_folder=data_folder)
             except:
                 raise RuntimeError(
-                    f"Could not find load recording {recording_name} from dict. "
-                    f"Make sure mapping is correct!"
+                    f"Could not find load recording {recording_name} from dict. " f"Make sure mapping is correct!"
                 )
 
             skip_processing = False
@@ -357,6 +357,127 @@ if __name__ == "__main__":
                         recording_processed = recording_processed.remove_channels(bad_channel_ids)
                         preprocessing_notes += f"\n- Removed {len(bad_channel_ids)} bad channels after preprocessing.\n"
 
+                    # remove artifacts
+                    if preprocessing_params["apply_remove_artifacts"]:
+                        # the ecephys folder is mapped as "ecephys_session"
+                        session_folder = data_folder / "ecephys_session"
+                        stimulation_trigger_times = []
+
+                        if session_folder.exists():
+                            # Move to its own capsule for flexibility???
+                            print(f"\tRemoving optical stimulation artifacts")
+                            remove_artifact_params = preprocessing_params["remove_artifacts"]
+
+                            # instantiate stimulation variables
+                            pulse_durations = None
+                            pulse_frequencies = None
+                            train_durations = None
+                            num_pulses = None
+                            inter_pulse_intervals = None
+
+                            # check if HARP system
+                            harp_folders = [p for p in session_folder.glob("**/HarpFolder")]
+
+                            if len(harp_folders) == 1:
+                                behavior_data = None
+                                behavior_folders = [p for p in session_folder.glob("**/TrainingFolder")]
+                                if len(behavior_folders) == 1:
+                                    behavior_folder = behavior_folders[0]
+                                    json_files = [p for p in behavior_folder.iterdir() if p.suffix == ".json"]
+                                    if len(json_files) == 1:
+                                        json_file = json_files[0]
+                                        with open(json_file) as f:
+                                            behavior_data = json.load(open(json_file))
+                                if behavior_data is not None:
+                                    laser_info = behavior_data.get("Opto_dialog", None)
+                                    stimulation_trigger_times = behavior_data.get("B_OptogeneticsTimeHarp", None)
+                                    if laser_info is not None and stimulation_trigger_times is not None:
+                                        active_laser_ids = [
+                                            k.split("_")[1]
+                                            for k, v in laser_info.items()
+                                            if "Laser_" in k and v != "NA" and "calibration" not in k
+                                        ]
+                                        if len(active_laser_ids) != 1:
+                                            print("\tFound more than one active laser. Not supported!")
+                                        else:
+                                            active_laser_id = active_laser_ids[0]
+                                            pulse_durations = behavior_data[f"TP_PulseDur_{active_laser_id}"]
+                                            pulse_frequencies = behavior_data[f"TP_Frequency_{active_laser_id}"]
+                                            train_durations = behavior_data[f"TP_Duration_{active_laser_id}"]
+                            else:
+                                ecephys_clipped_folders = [p for p in session_folder.glob("**/ecephys_clipped")]
+                                if len(ecephys_clipped_folders) == 1:
+                                    ecephys_folder = ecephys_clipped_folders[0]
+
+                                    # load CSV events file
+                                    opto_csv_files = [
+                                        p
+                                        for p in ecephys_folder.iterdir()
+                                        if p.name.endswith("csv") and "opto" in p.name
+                                    ]
+                                    if len(opto_csv_files) == 1:
+                                        opto_csv_file = opto_csv_files[0]
+                                        opto_df = pd.read_csv(opto_csv_file)
+
+                                        # durations are in ms, we need s
+                                        pulse_durations = opto_df["duration"] / 1000
+                                        num_pulses = opto_df["num_pulses"]
+                                        inter_pulse_intervals = opto_df["pulse_interval"] / 1000 + pulse_durations
+
+                                        # read OE events
+                                        events = se.read_openephys_event(ecephys_folder, block_index=0)
+                                        evts = events.get_events(channel_id="PXIe-6341Digital Input Line")
+
+                                        labels, counts = np.unique(evts["label"], return_counts=True)
+                                        (label_index,) = np.where(counts == len(opto_df))
+
+                                        if len(label_index) > 0:
+                                            evts_opto = evts[evts["label"] == labels[label_index]]
+                                            stimulation_trigger_times = evts_opto["time"]
+                                        else:
+                                            print("\tCould not find an event channel with the right number of events!")
+                                    else:
+                                        print(f"Found {len(opto_csv_files)} opto CSV files. One CSV file is required.")
+
+                        if len(stimulation_trigger_times) > 0:
+                            all_stimulation_trigger_times = []
+                            for i, st in enumerate(stimulation_trigger_times):
+                                pulse_duration = float(pulse_durations[i])
+                                if inter_pulse_intervals is not None:
+                                    inter_pulse_interval = inter_pulse_intervals[i]
+                                else:
+                                    assert pulse_frequencies is not None
+                                    inter_pulse_interval = 1 / float(pulse_frequencies[i])
+                                if num_pulses is not None:
+                                    n_pulses = num_pulses[i]
+                                else:
+                                    assert train_durations is not None
+                                    n_pulses = int(float(train_durations[i]) / inter_pulse_interval)
+
+                                for i in range(n_pulses):
+                                    all_stimulation_trigger_times.extend(
+                                        [st + i * inter_pulse_interval, st + i * inter_pulse_interval + pulse_duration]
+                                    )
+
+                            evt_triggers_sync = np.searchsorted(
+                                recording_processed.get_times(segment_index=segment_index),
+                                all_stimulation_trigger_times,
+                            )
+
+                            recording_processed = spre.remove_artifacts(
+                                recording_processed,
+                                list_triggers=evt_triggers_sync,
+                                ms_before=remove_artifact_params["ms_before"],
+                                ms_after=remove_artifact_params["ms_after"],
+                            )
+                            print(f"\tFound {len(evt_triggers_sync)} optical stimulation artifacts")
+                            preprocessing_notes += (
+                                f"\n- Found {len(evt_triggers_sync)} optical stimulation artifacts.\n"
+                            )
+                        else:
+                            print(f"\tFound no optical stimulation artifacts")
+                            preprocessing_notes += f"\n- Found no optical stimulation artifacts.\n"
+
                     # motion correction
                     if motion_params["compute"]:
                         preset = motion_params["preset"]
@@ -377,7 +498,7 @@ if __name__ == "__main__":
                             select_kwargs=select_kwargs,
                             localize_peaks_kwargs=localize_peaks_kwargs,
                             estimate_motion_kwargs=estimate_motion_kwargs,
-                            interpolate_motion_kwargs=interpolate_motion_kwargs
+                            interpolate_motion_kwargs=interpolate_motion_kwargs,
                         )
                         if motion_params["apply"]:
                             print(f"\tApplying motion correction")
