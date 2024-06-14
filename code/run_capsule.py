@@ -250,7 +250,7 @@ if __name__ == "__main__":
 
             print(f"Preprocessing recording: {session_name} - {recording_name}")
 
-            if T_START is not None or T_STOP is not None:
+            if T_START is not None or T_STOP is not None and not DEBUG:
                 if recording.get_num_segments() > 1:
                     print(f"\tRecording has multiple segments. Ignoring T_START and T_STOP")
                 else:
@@ -258,9 +258,12 @@ if __name__ == "__main__":
                         T_START = 0
                     if T_STOP is None:
                         T_STOP = recording.get_duration()
-                    print(f"\tClipping recording to {T_START}-{T_STOP} s")
-                    start_frame = int(float(T_START) * recording.get_sampling_frequency())
-                    end_frame = int(float(T_STOP) * recording.get_sampling_frequency() + 1)
+                    T_START = float(T_START)
+                    T_STOP = float(T_STOP)
+                    T_STOP = min(T_STOP, recording.get_duration())
+                    print(f"\tOriginal recording duration: {recording.get_duration()} -- Clipping to {T_START}-{T_STOP} s")
+                    start_frame = int(T_START * recording.get_sampling_frequency())
+                    end_frame = int(T_STOP * recording.get_sampling_frequency() + 1)
                     recording = recording.frame_slice(start_frame=start_frame, end_frame=end_frame)
 
             print(f"\tDuration: {np.round(recording.get_total_duration(), 2)} s")
