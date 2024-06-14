@@ -446,40 +446,43 @@ if __name__ == "__main__":
                                         print(f"Found {len(opto_csv_files)} opto CSV files. One CSV file is required.")
 
                         if len(stimulation_trigger_times) > 0:
-                            all_stimulation_trigger_times = []
-                            for i, st in enumerate(stimulation_trigger_times):
-                                pulse_duration = float(pulse_durations[i])
-                                if inter_pulse_intervals is not None:
-                                    inter_pulse_interval = inter_pulse_intervals[i]
-                                else:
-                                    assert pulse_frequencies is not None
-                                    inter_pulse_interval = 1 / float(pulse_frequencies[i])
-                                if num_pulses is not None:
-                                    n_pulses = num_pulses[i]
-                                else:
-                                    assert train_durations is not None
-                                    n_pulses = int(float(train_durations[i]) / inter_pulse_interval)
+                            if recording.get_num_segments() == 1:
+                                all_stimulation_trigger_times = []
+                                for i, st in enumerate(stimulation_trigger_times):
+                                    pulse_duration = float(pulse_durations[i])
+                                    if inter_pulse_intervals is not None:
+                                        inter_pulse_interval = inter_pulse_intervals[i]
+                                    else:
+                                        assert pulse_frequencies is not None
+                                        inter_pulse_interval = 1 / float(pulse_frequencies[i])
+                                    if num_pulses is not None:
+                                        n_pulses = num_pulses[i]
+                                    else:
+                                        assert train_durations is not None
+                                        n_pulses = int(float(train_durations[i]) / inter_pulse_interval)
 
-                                for i in range(n_pulses):
-                                    all_stimulation_trigger_times.extend(
-                                        [st + i * inter_pulse_interval, st + i * inter_pulse_interval + pulse_duration]
-                                    )
+                                    for i in range(n_pulses):
+                                        all_stimulation_trigger_times.extend(
+                                            [st + i * inter_pulse_interval, st + i * inter_pulse_interval + pulse_duration]
+                                        )
 
-                            evt_triggers_sync = np.searchsorted(
-                                recording_processed.get_times(segment_index=segment_index),
-                                all_stimulation_trigger_times,
-                            )
+                                evt_triggers_sync = np.searchsorted(
+                                    recording_processed.get_times(),
+                                    all_stimulation_trigger_times,
+                                )
 
-                            recording_processed = spre.remove_artifacts(
-                                recording_processed,
-                                list_triggers=evt_triggers_sync,
-                                ms_before=remove_artifact_params["ms_before"],
-                                ms_after=remove_artifact_params["ms_after"],
-                            )
-                            print(f"\tFound {len(evt_triggers_sync)} optical stimulation artifacts")
-                            preprocessing_notes += (
-                                f"\n- Found {len(evt_triggers_sync)} optical stimulation artifacts.\n"
-                            )
+                                recording_processed = spre.remove_artifacts(
+                                    recording_processed,
+                                    list_triggers=evt_triggers_sync,
+                                    ms_before=remove_artifact_params["ms_before"],
+                                    ms_after=remove_artifact_params["ms_after"],
+                                )
+                                print(f"\tFound {len(evt_triggers_sync)} optical stimulation artifacts")
+                                preprocessing_notes += (
+                                    f"\n- Found {len(evt_triggers_sync)} optical stimulation artifacts.\n"
+                                )
+                            else:
+                                print("\tArtifact removal not supported for multi-segment recordings.")
                         else:
                             print(f"\tFound no optical stimulation artifacts")
                             preprocessing_notes += f"\n- Found no optical stimulation artifacts.\n"
