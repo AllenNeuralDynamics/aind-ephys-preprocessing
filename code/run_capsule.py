@@ -237,6 +237,7 @@ if __name__ == "__main__":
             preprocessing_output_folder = results_folder / f"preprocessed_{recording_name}"
             preprocessingviz_output_file = results_folder / f"preprocessedviz_{recording_name}.json"
             preprocessing_output_json = results_folder / f"preprocessed_{recording_name}.json"
+            motioncorrected_output_json = results_folder / f"motioncorrected_{recording_name}.json"
 
             if DEBUG:
                 recording_list = []
@@ -250,7 +251,7 @@ if __name__ == "__main__":
 
             print(f"Preprocessing recording: {session_name} - {recording_name}")
 
-            if T_START is not None or T_STOP is not None and not DEBUG:
+            if (T_START is not None or T_STOP is not None) and not DEBUG:
                 if recording.get_num_segments() > 1:
                     print(f"\tRecording has multiple segments. Ignoring T_START and T_STOP")
                 else:
@@ -386,6 +387,7 @@ if __name__ == "__main__":
                             estimate_motion_kwargs=estimate_motion_kwargs,
                             interpolate_motion_kwargs=interpolate_motion_kwargs
                         )
+                        recording_corrected.dump_to_json(motioncorrected_output_json, relative_to=data_folder)
                         if motion_params["apply"]:
                             print(f"\tApplying motion correction")
                             recording_processed = recording_corrected
