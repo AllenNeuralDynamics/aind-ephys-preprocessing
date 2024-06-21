@@ -365,6 +365,8 @@ if __name__ == "__main__":
                         recording_processed = recording_processed.remove_channels(bad_channel_ids)
                         preprocessing_notes += f"\n- Removed {len(bad_channel_ids)} bad channels after preprocessing.\n"
 
+                    recording_saved = recording_processed.save(folder=preprocessing_output_folder)
+
                     # motion correction
                     if motion_params["compute"]:
                         preset = motion_params["preset"]
@@ -378,7 +380,7 @@ if __name__ == "__main__":
 
                         motion_folder = results_folder / f"motion_{recording_name}"
                         recording_corrected = spre.correct_motion(
-                            recording_processed,
+                            recording_saved,
                             preset=preset,
                             folder=motion_folder,
                             detect_kwargs=detect_kwargs,
@@ -392,7 +394,6 @@ if __name__ == "__main__":
                             print(f"\tApplying motion correction")
                             recording_processed = recording_corrected
 
-                    recording_saved = recording_processed.save(folder=preprocessing_output_folder)
                     recording_processed.dump_to_json(preprocessing_output_json, relative_to=data_folder)
                     recording_drift = recording_saved
                     drift_relative_folder = results_folder
