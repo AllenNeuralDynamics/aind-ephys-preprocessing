@@ -410,7 +410,7 @@ if __name__ == "__main__":
                             recording_bin = recording_bin_corrected
 
                     # this is used to reload the binary traces downstream
-                    recording_bin.dump_to_json(binary_output_json)
+                    recording_bin.dump_to_json(binary_output_json, relative_to=results_folder)
 
                     # this is to reload the recordings lazily
                     recording_processed.dump_to_json(preprocessing_output_json, relative_to=data_folder)
