@@ -238,6 +238,8 @@ if __name__ == "__main__":
             preprocessingviz_output_file = results_folder / f"preprocessedviz_{recording_name}.json"
             preprocessing_output_json = results_folder / f"preprocessed_{recording_name}.json"
             motioncorrected_output_json = results_folder / f"motioncorrected_{recording_name}.json"
+            binary_output_json = results_folder / f"binary_{recording_name}.json"
+
 
             if DEBUG:
                 recording_list = []
@@ -365,10 +367,15 @@ if __name__ == "__main__":
                         recording_processed = recording_processed.remove_channels(bad_channel_ids)
                         preprocessing_notes += f"\n- Removed {len(bad_channel_ids)} bad channels after preprocessing.\n"
 
-                    recording_saved = recording_processed.save(folder=preprocessing_output_folder)
+                    # save to binary to speed up downstream processing
+                    recording_bin = recording_processed.save(folder=preprocessing_output_folder)
 
                     # motion correction
+                    recording_corrected = None
+                    recording_bin_corrected = None
                     if motion_params["compute"]:
+                        from spikeinterface.sortingcomponents.motion_interpolation import interpolate_motion
+
                         preset = motion_params["preset"]
                         print(f"\tComputing motion correction with preset: {preset}")
 
@@ -379,23 +386,37 @@ if __name__ == "__main__":
                         interpolate_motion_kwargs = motion_params.get("interpolate_motion_kwargs", {})
 
                         motion_folder = results_folder / f"motion_{recording_name}"
-                        recording_corrected = spre.correct_motion(
-                            recording_saved,
+                        recording_bin_corrected, motion_info = spre.correct_motion(
+                            recording_bin,
                             preset=preset,
                             folder=motion_folder,
+                            output_motion_info=True,
                             detect_kwargs=detect_kwargs,
                             select_kwargs=select_kwargs,
                             localize_peaks_kwargs=localize_peaks_kwargs,
                             estimate_motion_kwargs=estimate_motion_kwargs,
                             interpolate_motion_kwargs=interpolate_motion_kwargs
                         )
-                        recording_corrected.dump_to_json(motioncorrected_output_json, relative_to=data_folder)
+                        recording_corrected = interpolate_motion(
+                            recording_processed,
+                            motion=motion_info["motion"],
+                            temporal_bins=motion_info["temporal_bins"],
+                            spatial_bins=motion_info["spatial_bins"],
+                            **interpolate_motion_kwargs
+                        )
                         if motion_params["apply"]:
                             print(f"\tApplying motion correction")
                             recording_processed = recording_corrected
+                            recording_bin = recording_bin_corrected
 
+                    # this is used to reload the binary traces downstream
+                    recording_bin.dump_to_json(binary_output_json)
+
+                    # this is to reload the recordings lazily
                     recording_processed.dump_to_json(preprocessing_output_json, relative_to=data_folder)
-                    recording_drift = recording_saved
+                    if recording_corrected is not None:
+                        recording_corrected.dump_to_json(motioncorrected_output_json, relative_to=data_folder)
+                    recording_drift = recording_bin
                     drift_relative_folder = results_folder
 
             if skip_processing:
