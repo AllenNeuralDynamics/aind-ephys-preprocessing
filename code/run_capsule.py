@@ -379,15 +379,25 @@ if __name__ == "__main__":
                         preset = motion_params["preset"]
                         print(f"\tComputing motion correction with preset: {preset}")
 
-                        detect_kwargs = motion_params.get("detect_kwargs    ", {})
+                        detect_kwargs = motion_params.get("detect_kwargs", {})
                         select_kwargs = motion_params.get("select_kwargs", {})
                         localize_peaks_kwargs = motion_params.get("localize_peaks_kwargs", {})
                         estimate_motion_kwargs = motion_params.get("estimate_motion_kwargs", {})
                         interpolate_motion_kwargs = motion_params.get("interpolate_motion_kwargs", {})
 
                         motion_folder = results_folder / f"motion_{recording_name}"
+
+                        concat_motion = False
+                        if recording_processed.ger_num_segments() > 1:
+                            recording_bin_c = si.concatenate_recordings(recording_bin)
+                            recording_processed_c = si.concatenate_recordings(recording_processed)
+                            concat_motion = True
+                        else:
+                            recording_bin_c = recording_bin
+                            recording_processed_c = recording_processed
+
                         recording_bin_corrected, motion_info = spre.correct_motion(
-                            recording_bin,
+                            recording_bin_c,
                             preset=preset,
                             folder=motion_folder,
                             output_motion_info=True,
@@ -398,12 +408,38 @@ if __name__ == "__main__":
                             interpolate_motion_kwargs=interpolate_motion_kwargs
                         )
                         recording_corrected = interpolate_motion(
-                            recording_processed,
+                            recording_processed_c,
                             motion=motion_info["motion"],
                             temporal_bins=motion_info["temporal_bins"],
                             spatial_bins=motion_info["spatial_bins"],
                             **interpolate_motion_kwargs
                         )
+
+                        # split segments back
+                        if concat_motion:
+                            rec_corrected_list = []
+                            rec_corrected_bin_list = []
+                            for seg in recording_bin_corrected.get_num_segments():
+                                num_samples = recording_bin.get_num_samples(seg)
+                                if seg == 0:
+                                    start_frame = 0
+                                else:
+                                    start_frame = recording_bin.get_num_samples(seg - 1)
+                                end_frame = start_frame + num_samples
+                                rec_split_corrected = recording_corrected.frame_slice(
+                                    start_frame=start_frame,
+                                    end_frame=end_frame
+                                )
+                                rec_corrected_list.append(rec_split_corrected)
+                                rec_split_bin = recording_bin_corrected.frame_slice(
+                                    start_frame=start_frame,
+                                    end_frame=end_frame
+                                )
+                                rec_corrected_bin_list.append(rec_split_bin)
+                            # append all segments
+                            recording_corrected = si.append_recordings(rec_corrected_list)
+                            recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
+
                         if motion_params["apply"]:
                             print(f"\tApplying motion correction")
                             recording_processed = recording_corrected
