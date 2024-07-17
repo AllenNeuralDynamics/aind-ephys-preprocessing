@@ -388,9 +388,9 @@ if __name__ == "__main__":
                         motion_folder = results_folder / f"motion_{recording_name}"
 
                         concat_motion = False
-                        if recording_processed.ger_num_segments() > 1:
-                            recording_bin_c = si.concatenate_recordings(recording_bin)
-                            recording_processed_c = si.concatenate_recordings(recording_processed)
+                        if recording_processed.get_num_segments() > 1:
+                            recording_bin_c = si.concatenate_recordings([recording_bin])
+                            recording_processed_c = si.concatenate_recordings([recording_processed])
                             concat_motion = True
                         else:
                             recording_bin_c = recording_bin
@@ -419,12 +419,12 @@ if __name__ == "__main__":
                         if concat_motion:
                             rec_corrected_list = []
                             rec_corrected_bin_list = []
-                            for seg in recording_bin_corrected.get_num_segments():
-                                num_samples = recording_bin.get_num_samples(seg)
-                                if seg == 0:
+                            for segment_index in range(recording_bin_corrected.get_num_segments()):
+                                num_samples = recording_bin.get_num_samples(segment_index)
+                                if segment_index == 0:
                                     start_frame = 0
                                 else:
-                                    start_frame = recording_bin.get_num_samples(seg - 1)
+                                    start_frame = recording_bin.get_num_samples(segment_index - 1)
                                 end_frame = start_frame + num_samples
                                 rec_split_corrected = recording_corrected.frame_slice(
                                     start_frame=start_frame,
