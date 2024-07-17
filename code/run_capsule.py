@@ -386,6 +386,9 @@ if __name__ == "__main__":
                         interpolate_motion_kwargs = motion_params.get("interpolate_motion_kwargs", {})
 
                         motion_folder = results_folder / f"motion_{recording_name}"
+
+                        # interpolation requires float
+                        recording_bin_f = spre.astype(recording_bin, "float32")
                         recording_bin_corrected, motion_info = spre.correct_motion(
                             recording_bin,
                             preset=preset,
@@ -397,6 +400,7 @@ if __name__ == "__main__":
                             estimate_motion_kwargs=estimate_motion_kwargs,
                             interpolate_motion_kwargs=interpolate_motion_kwargs
                         )
+                        recording_processed_f = spre.astype(recording_processed, "float32")
                         recording_corrected = interpolate_motion(
                             recording_processed,
                             motion=motion_info["motion"],
