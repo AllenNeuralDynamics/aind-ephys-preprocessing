@@ -390,7 +390,7 @@ if __name__ == "__main__":
                         # interpolation requires float
                         recording_bin_f = spre.astype(recording_bin, "float32")
                         recording_bin_corrected, motion_info = spre.correct_motion(
-                            recording_bin,
+                            recording_bin_f,
                             preset=preset,
                             folder=motion_folder,
                             output_motion_info=True,
@@ -402,10 +402,8 @@ if __name__ == "__main__":
                         )
                         recording_processed_f = spre.astype(recording_processed, "float32")
                         recording_corrected = interpolate_motion(
-                            recording_processed,
+                            recording_processed_f,
                             motion=motion_info["motion"],
-                            temporal_bins=motion_info["temporal_bins"],
-                            spatial_bins=motion_info["spatial_bins"],
                             **interpolate_motion_kwargs
                         )
                         if motion_params["apply"]:
