@@ -374,7 +374,7 @@ if __name__ == "__main__":
                     recording_corrected = None
                     recording_bin_corrected = None
                     if motion_params["compute"]:
-                        from spikeinterface.sortingcomponents.motion_interpolation import interpolate_motion
+                        from spikeinterface.sortingcomponents.motion import interpolate_motion
 
                         preset = motion_params["preset"]
                         print(f"\tComputing motion correction with preset: {preset}")
