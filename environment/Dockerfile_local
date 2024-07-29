@@ -8,7 +8,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install -U --no-cache-dir \
-    aind-data-schema==0.22.1 \
+    aind-data-schema==0.38.5 \
     spikeinterface[full]==0.101.0 \
     torch==2.2.0 \
     wavpack-numcodecs==0.1.5
