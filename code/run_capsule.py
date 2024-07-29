@@ -379,7 +379,7 @@ if __name__ == "__main__":
                         preset = motion_params["preset"]
                         print(f"\tComputing motion correction with preset: {preset}")
 
-                        detect_kwargs = motion_params.get("detect_kwargs    ", {})
+                        detect_kwargs = motion_params.get("detect_kwargs", {})
                         select_kwargs = motion_params.get("select_kwargs", {})
                         localize_peaks_kwargs = motion_params.get("localize_peaks_kwargs", {})
                         estimate_motion_kwargs = motion_params.get("estimate_motion_kwargs", {})
