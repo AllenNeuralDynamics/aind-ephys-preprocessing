@@ -389,8 +389,18 @@ if __name__ == "__main__":
 
                         # interpolation requires float
                         recording_bin_f = spre.astype(recording_bin, "float32")
+
+                        concat_motion = False
+                        if recording_processed.get_num_segments() > 1:
+                            recording_bin_c = si.concatenate_recordings([recording_bin_f])
+                            recording_processed_c = si.concatenate_recordings([recording_processed])
+                            concat_motion = True
+                        else:
+                            recording_bin_c = recording_bin_f
+                            recording_processed_c = recording_processed
+
                         recording_bin_corrected, motion_info = spre.correct_motion(
-                            recording_bin_f,
+                            recording_bin_c,
                             preset=preset,
                             folder=motion_folder,
                             output_motion_info=True,
@@ -400,12 +410,38 @@ if __name__ == "__main__":
                             estimate_motion_kwargs=estimate_motion_kwargs,
                             interpolate_motion_kwargs=interpolate_motion_kwargs
                         )
-                        recording_processed_f = spre.astype(recording_processed, "float32")
+                        recording_processed_f = spre.astype(recording_processed_c, "float32")
                         recording_corrected = interpolate_motion(
                             recording_processed_f,
                             motion=motion_info["motion"],
                             **interpolate_motion_kwargs
                         )
+
+                        # split segments back
+                        if concat_motion:
+                            rec_corrected_list = []
+                            rec_corrected_bin_list = []
+                            for segment_index in range(recording_bin_corrected.get_num_segments()):
+                                num_samples = recording_bin.get_num_samples(segment_index)
+                                if segment_index == 0:
+                                    start_frame = 0
+                                else:
+                                    start_frame = recording_bin.get_num_samples(segment_index - 1)
+                                end_frame = start_frame + num_samples
+                                rec_split_corrected = recording_corrected.frame_slice(
+                                    start_frame=start_frame,
+                                    end_frame=end_frame
+                                )
+                                rec_corrected_list.append(rec_split_corrected)
+                                rec_split_bin = recording_bin_corrected.frame_slice(
+                                    start_frame=start_frame,
+                                    end_frame=end_frame
+                                )
+                                rec_corrected_bin_list.append(rec_split_bin)
+                            # append all segments
+                            recording_corrected = si.append_recordings(rec_corrected_list)
+                            recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
+
                         if motion_params["apply"]:
                             print(f"\tApplying motion correction")
                             recording_processed = recording_corrected
