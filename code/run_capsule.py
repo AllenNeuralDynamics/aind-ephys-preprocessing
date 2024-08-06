@@ -13,6 +13,7 @@ import argparse
 import numpy as np
 from pathlib import Path
 import json
+import pickle
 import time
 from datetime import datetime, timedelta
 
@@ -202,23 +203,28 @@ if __name__ == "__main__":
     if MOTION_PRESET is not None:
         motion_params["preset"] = MOTION_PRESET
 
-    # load job json files
-    job_config_json_files = [p for p in data_folder.iterdir() if p.suffix == ".json" and "job" in p.name]
-    print(f"Found {len(job_config_json_files)} json configurations")
+    # load job files
+    job_config_files = [p for p in data_folder.iterdir() if (p.suffix == ".json" or p.suffix == ".pickle") and "job" in p.name]
+    print(f"Found {len(job_config_files)} json configurations")
 
-    if len(job_config_json_files) > 0:
+    if len(job_config_files) > 0:
         ####### PREPROCESSING #######
         print("\n\nPREPROCESSING")
         t_preprocessing_start_all = time.perf_counter()
         preprocessing_vizualization_data = {}
 
-        for job_config_file in job_config_json_files:
+        for job_config_file in job_config_files:
             datetime_start_preproc = datetime.now()
             t_preprocessing_start = time.perf_counter()
             preprocessing_notes = ""
 
-            with open(job_config_file, "r") as f:
-                job_config = json.load(f)
+            if job_config_file.suffix == ".json":
+                with open(job_config_file, "r") as f:
+                    job_config = json.load(f)
+            else:
+                with open(job_config_file, "rb") as f:
+                    job_config = pickle.load(f)
+
             session_name = job_config["session_name"]
             recording_name = job_config["recording_name"]
             recording_dict = job_config["recording_dict"]
