@@ -204,7 +204,7 @@ if __name__ == "__main__":
         motion_params["preset"] = MOTION_PRESET
 
     # load job files
-    job_config_files = [p for p in data_folder.iterdir() if (p.suffix == ".json" or p.suffix == ".pickle") and "job" in p.name]
+    job_config_files = [p for p in data_folder.iterdir() if (p.suffix == ".json" or p.suffix == ".pickle" or p.suffix == ".pkl") and "job" in p.name]
     print(f"Found {len(job_config_files)} json configurations")
 
     if len(job_config_files) > 0:
