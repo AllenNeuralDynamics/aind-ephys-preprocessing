@@ -132,6 +132,14 @@ params_group.add_argument("--params-file", default=None, help=params_file_help)
 params_group.add_argument("--params-str", default=None, help="Optional json string with parameters")
 
 
+
+def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
+    if recording.check_serializability("json"):
+        recording.dump_to_json(results_folder / f"{base_name}.json", relative_to=relative_to)
+    else:
+        recording.dump_to_pickle(results_folder / f"{base_name}.pkl", relative_to=relative_to)
+
+
 if __name__ == "__main__":
     args = parser.parse_args()
 
@@ -243,10 +251,10 @@ if __name__ == "__main__":
             preprocessing_vizualization_data[recording_name] = {}
             preprocessing_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
             preprocessing_output_folder = results_folder / f"preprocessed_{recording_name}"
-            preprocessingviz_output_file = results_folder / f"preprocessedviz_{recording_name}.json"
-            preprocessing_output_json = results_folder / f"preprocessed_{recording_name}.json"
-            motioncorrected_output_json = results_folder / f"motioncorrected_{recording_name}.json"
-            binary_output_json = results_folder / f"binary_{recording_name}.json"
+            preprocessingviz_output_filename = f"preprocessedviz_{recording_name}"
+            preprocessing_output_filename = f"preprocessed_{recording_name}"
+            motioncorrected_output_filename = f"motioncorrected_{recording_name}"
+            binary_output_filename = f"binary_{recording_name}"
 
 
             if DEBUG:
@@ -456,12 +464,29 @@ if __name__ == "__main__":
                             recording_bin = recording_bin_corrected
 
                     # this is used to reload the binary traces downstream
-                    recording_bin.dump_to_json(binary_output_json, relative_to=results_folder)
+                    dump_to_json_or_pickle(
+                        recording_bin,
+                        results_folder,
+                        binary_output_filename,
+                        relative_to=results_folder
+                    )
 
-                    # this is to reload the recordings lazily
-                    recording_processed.dump_to_json(preprocessing_output_json, relative_to=data_folder)
-                    if recording_corrected is not None:
-                        recording_corrected.dump_to_json(motioncorrected_output_json, relative_to=data_folder)
+                    # this is to reload the recordings lazily            
+                    dump_to_json_or_pickle(
+                        recording_processed,
+                        results_folder,
+                        preprocessing_output_filename,
+                        relative_to=results_folder
+                    )
+
+                    # this is to reload the motion-corrected recording lazily            
+                    dump_to_json_or_pickle(
+                        recording_corrected,
+                        results_folder,
+                        motioncorrected_output_filename,
+                        relative_to=results_folder
+                    )
+
                     recording_drift = recording_bin
                     drift_relative_folder = results_folder
 
@@ -479,8 +504,13 @@ if __name__ == "__main__":
             preprocessing_vizualization_data[recording_name]["drift"] = dict(
                 recording=recording_drift.to_dict(relative_to=drift_relative_folder, recursive=True)
             )
-            with open(preprocessingviz_output_file, "w") as f:
-                json.dump(check_json(preprocessing_vizualization_data), f, indent=4)
+            try:            
+                with open(results_folder / f"{preprocessingviz_output_filename}.json", "w") as f:
+                    json.dump(check_json(preprocessing_vizualization_data), f, indent=4)
+            except:
+                # then dump to pickle
+                with open(results_folder / f"{preprocessingviz_output_filename}.pkl", "wb") as f:
+                    pickle.dump(check_json(preprocessing_vizualization_data), f)
 
             t_preprocessing_end = time.perf_counter()
             elapsed_time_preprocessing = np.round(t_preprocessing_end - t_preprocessing_start, 2)
