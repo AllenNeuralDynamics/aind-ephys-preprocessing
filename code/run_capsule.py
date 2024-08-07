@@ -51,6 +51,11 @@ denoising_help = "Which denoising strategy to use. Can be 'cmr' or 'destripe'"
 denoising_group.add_argument("--denoising", choices=["cmr", "destripe"], help=denoising_help)
 denoising_group.add_argument("static_denoising", nargs="?", default="cmr", help=denoising_help)
 
+filter_group = parser.add_mutually_exclusive_group()
+filter_help = "Which filter to use. Can be 'highpass' or 'bandpass'"
+filter_group.add_argument("--filter-type", choices=["highpass", "bandpass"], help=filter_help)
+filter_group.add_argument("static_filter_type", nargs="?", default="highpass", help=filter_help)
+
 remove_out_channels_group = parser.add_mutually_exclusive_group()
 remove_out_channels_help = "Whether to remove out channels"
 remove_out_channels_group.add_argument("--no-remove-out-channels", action="store_true", help=remove_out_channels_help)
@@ -137,6 +142,7 @@ if __name__ == "__main__":
 
     DEBUG = args.debug or args.static_debug == "true"
     DENOISING_STRATEGY = args.denoising or args.static_denoising
+    FILTER_TYPE = args.filter_type or args.static_filter_type
     REMOVE_OUT_CHANNELS = False if args.no_remove_out_channels else args.static_remove_out_channels == "true"
     REMOVE_BAD_CHANNELS = False if args.no_remove_bad_channels else args.static_remove_bad_channels == "true"
     MAX_BAD_CHANNEL_FRACTION = float(args.static_max_bad_channel_fraction or args.max_bad_channel_fraction)
@@ -237,6 +243,9 @@ if __name__ == "__main__":
             preprocessing_output_folder = results_folder / f"preprocessed_{recording_name}"
             preprocessingviz_output_file = results_folder / f"preprocessedviz_{recording_name}.json"
             preprocessing_output_json = results_folder / f"preprocessed_{recording_name}.json"
+            motioncorrected_output_json = results_folder / f"motioncorrected_{recording_name}.json"
+            binary_output_json = results_folder / f"binary_{recording_name}.json"
+
 
             if DEBUG:
                 recording_list = []
@@ -250,7 +259,7 @@ if __name__ == "__main__":
 
             print(f"Preprocessing recording: {session_name} - {recording_name}")
 
-            if T_START is not None or T_STOP is not None and not DEBUG:
+            if (T_START is not None or T_STOP is not None) and not DEBUG:
                 if recording.get_num_segments() > 1:
                     print(f"\tRecording has multiple segments. Ignoring T_START and T_STOP")
                 else:
@@ -281,10 +290,20 @@ if __name__ == "__main__":
             else:
                 recording_ps_full = recording
 
-            recording_hp_full = spre.highpass_filter(recording_ps_full, **preprocessing_params["highpass_filter"])
-            preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
-                dict(highpass=recording_hp_full.to_dict(relative_to=data_folder, recursive=True))
-            )
+            if FILTER_TYPE == "highpass":
+                recording_filt_full = spre.highpass_filter(recording_ps_full, **preprocessing_params["highpass_filter"])
+                preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
+                    dict(highpass=recording_filt_full.to_dict(relative_to=data_folder, recursive=True))
+                )
+                preprocessing_params["filter_type"] = "highpass"
+            elif FILTER_TYPE == "bandpass":
+                recording_filt_full = spre.bandpass_filter(recording_ps_full, **preprocessing_params["bandpass_filter"])
+                preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
+                    dict(bandpass=recording_filt_full.to_dict(relative_to=data_folder, recursive=True))
+                )
+                preprocessing_params["filter_type"] = "bandpass"
+            else:
+                raise ValueError(f"Filter type {FILTER_TYPE} not recognized")
 
             if recording.get_total_duration() < preprocessing_params["min_preprocessing_duration"] and not DEBUG:
                 print(f"\tRecording is too short ({recording.get_total_duration()}s). Skipping further processing")
@@ -296,7 +315,7 @@ if __name__ == "__main__":
             else:
                 # IBL bad channel detection
                 _, channel_labels = spre.detect_bad_channels(
-                    recording_hp_full, **preprocessing_params["detect_bad_channels"]
+                    recording_filt_full, **preprocessing_params["detect_bad_channels"]
                 )
                 dead_channel_mask = channel_labels == "dead"
                 noise_channel_mask = channel_labels == "noise"
@@ -305,9 +324,9 @@ if __name__ == "__main__":
                 print(
                     f"\t\t- dead channels - {np.sum(dead_channel_mask)}\n\t\t- noise channels - {np.sum(noise_channel_mask)}\n\t\t- out channels - {np.sum(out_channel_mask)}"
                 )
-                dead_channel_ids = recording_hp_full.channel_ids[dead_channel_mask]
-                noise_channel_ids = recording_hp_full.channel_ids[noise_channel_mask]
-                out_channel_ids = recording_hp_full.channel_ids[out_channel_mask]
+                dead_channel_ids = recording_filt_full.channel_ids[dead_channel_mask]
+                noise_channel_ids = recording_filt_full.channel_ids[noise_channel_mask]
+                out_channel_ids = recording_filt_full.channel_ids[out_channel_mask]
 
                 all_bad_channel_ids = np.concatenate((dead_channel_ids, noise_channel_ids, out_channel_ids))
 
@@ -325,10 +344,10 @@ if __name__ == "__main__":
                 if not skip_processing:
                     if preprocessing_params["remove_out_channels"]:
                         print(f"\tRemoving {len(out_channel_ids)} out channels")
-                        recording_rm_out = recording_hp_full.remove_channels(out_channel_ids)
+                        recording_rm_out = recording_filt_full.remove_channels(out_channel_ids)
                         preprocessing_notes += f"\n- Removed {len(out_channel_ids)} outside of the brain."
                     else:
-                        recording_rm_out = recording_hp_full
+                        recording_rm_out = recording_filt_full
 
                     recording_processed_cmr = spre.common_reference(
                         recording_rm_out, **preprocessing_params["common_reference"]
@@ -487,41 +506,98 @@ if __name__ == "__main__":
                             print(f"\tFound no optical stimulation artifacts")
                             preprocessing_notes += f"\n- Found no optical stimulation artifacts.\n"
 
+                    # save to binary to speed up downstream processing
+                    recording_bin = recording_processed.save(folder=preprocessing_output_folder)
+
                     # motion correction
+                    recording_corrected = None
+                    recording_bin_corrected = None
                     if motion_params["compute"]:
+                        from spikeinterface.sortingcomponents.motion_interpolation import interpolate_motion
+
                         preset = motion_params["preset"]
                         print(f"\tComputing motion correction with preset: {preset}")
 
-                        detect_kwargs = motion_params.get("detect_kwargs    ", {})
+                        detect_kwargs = motion_params.get("detect_kwargs", {})
                         select_kwargs = motion_params.get("select_kwargs", {})
                         localize_peaks_kwargs = motion_params.get("localize_peaks_kwargs", {})
                         estimate_motion_kwargs = motion_params.get("estimate_motion_kwargs", {})
                         interpolate_motion_kwargs = motion_params.get("interpolate_motion_kwargs", {})
 
                         motion_folder = results_folder / f"motion_{recording_name}"
-                        recording_corrected = spre.correct_motion(
-                            recording_processed,
+
+                        concat_motion = False
+                        if recording_processed.get_num_segments() > 1:
+                            recording_bin_c = si.concatenate_recordings([recording_bin])
+                            recording_processed_c = si.concatenate_recordings([recording_processed])
+                            concat_motion = True
+                        else:
+                            recording_bin_c = recording_bin
+                            recording_processed_c = recording_processed
+
+                        recording_bin_corrected, motion_info = spre.correct_motion(
+                            recording_bin_c,
                             preset=preset,
                             folder=motion_folder,
+                            output_motion_info=True,
                             detect_kwargs=detect_kwargs,
                             select_kwargs=select_kwargs,
                             localize_peaks_kwargs=localize_peaks_kwargs,
                             estimate_motion_kwargs=estimate_motion_kwargs,
                             interpolate_motion_kwargs=interpolate_motion_kwargs,
                         )
+                        recording_corrected = interpolate_motion(
+                            recording_processed_c,
+                            motion=motion_info["motion"],
+                            temporal_bins=motion_info["temporal_bins"],
+                            spatial_bins=motion_info["spatial_bins"],
+                            **interpolate_motion_kwargs
+                        )
+
+                        # split segments back
+                        if concat_motion:
+                            rec_corrected_list = []
+                            rec_corrected_bin_list = []
+                            for segment_index in range(recording_bin_corrected.get_num_segments()):
+                                num_samples = recording_bin.get_num_samples(segment_index)
+                                if segment_index == 0:
+                                    start_frame = 0
+                                else:
+                                    start_frame = recording_bin.get_num_samples(segment_index - 1)
+                                end_frame = start_frame + num_samples
+                                rec_split_corrected = recording_corrected.frame_slice(
+                                    start_frame=start_frame,
+                                    end_frame=end_frame
+                                )
+                                rec_corrected_list.append(rec_split_corrected)
+                                rec_split_bin = recording_bin_corrected.frame_slice(
+                                    start_frame=start_frame,
+                                    end_frame=end_frame
+                                )
+                                rec_corrected_bin_list.append(rec_split_bin)
+                            # append all segments
+                            recording_corrected = si.append_recordings(rec_corrected_list)
+                            recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
+
                         if motion_params["apply"]:
                             print(f"\tApplying motion correction")
                             recording_processed = recording_corrected
+                            recording_bin = recording_bin_corrected
 
-                    recording_saved = recording_processed.save(folder=preprocessing_output_folder)
+                    # this is used to reload the binary traces downstream
+                    recording_bin.dump_to_json(binary_output_json, relative_to=results_folder)
+
+                    # this is to reload the recordings lazily
                     recording_processed.dump_to_json(preprocessing_output_json, relative_to=data_folder)
-                    recording_drift = recording_saved
+                    if recording_corrected is not None:
+                        recording_corrected.dump_to_json(motioncorrected_output_json, relative_to=data_folder)
+                    recording_drift = recording_bin
                     drift_relative_folder = results_folder
 
             if skip_processing:
                 # in this case, processed timeseries will not be visualized
                 preprocessing_vizualization_data[recording_name]["timeseries"]["proc"] = None
-                recording_drift = recording_hp_full
+                recording_drift = recording_filt_full
                 drift_relative_folder = data_folder
                 # make a dummy file if too many bad channels to skip downstream processing
                 preprocessing_output_folder.mkdir()
