@@ -481,13 +481,14 @@ if __name__ == "__main__":
                         relative_to=results_folder
                     )
 
-                    # this is to reload the motion-corrected recording lazily            
-                    dump_to_json_or_pickle(
-                        recording_corrected,
-                        results_folder,
-                        motioncorrected_output_filename,
-                        relative_to=results_folder
-                    )
+                    # this is to reload the motion-corrected recording lazily
+                    if recording_corrected is not None:     
+                        dump_to_json_or_pickle(
+                            recording_corrected,
+                            results_folder,
+                            motioncorrected_output_filename,
+                            relative_to=results_folder
+                        )
 
                     recording_drift = recording_bin
                     drift_relative_folder = results_folder
