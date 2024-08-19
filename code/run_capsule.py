@@ -51,6 +51,11 @@ denoising_help = "Which denoising strategy to use. Can be 'cmr' or 'destripe'"
 denoising_group.add_argument("--denoising", choices=["cmr", "destripe"], help=denoising_help)
 denoising_group.add_argument("static_denoising", nargs="?", default="cmr", help=denoising_help)
 
+filter_group = parser.add_mutually_exclusive_group()
+filter_help = "Which filter to use. Can be 'highpass' or 'bandpass'"
+filter_group.add_argument("--filter-type", choices=["highpass", "bandpass"], help=filter_help)
+filter_group.add_argument("static_filter_type", nargs="?", default="highpass", help=filter_help)
+
 remove_out_channels_group = parser.add_mutually_exclusive_group()
 remove_out_channels_help = "Whether to remove out channels"
 remove_out_channels_group.add_argument("--no-remove-out-channels", action="store_true", help=remove_out_channels_help)
@@ -145,6 +150,7 @@ if __name__ == "__main__":
 
     DEBUG = args.debug or args.static_debug == "true"
     DENOISING_STRATEGY = args.denoising or args.static_denoising
+    FILTER_TYPE = args.filter_type or args.static_filter_type
     REMOVE_OUT_CHANNELS = False if args.no_remove_out_channels else args.static_remove_out_channels == "true"
     REMOVE_BAD_CHANNELS = False if args.no_remove_bad_channels else args.static_remove_bad_channels == "true"
     MAX_BAD_CHANNEL_FRACTION = float(args.static_max_bad_channel_fraction or args.max_bad_channel_fraction)
@@ -302,10 +308,20 @@ if __name__ == "__main__":
             else:
                 recording_ps_full = recording
 
-            recording_hp_full = spre.highpass_filter(recording_ps_full, **preprocessing_params["highpass_filter"])
-            preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
-                dict(highpass=recording_hp_full.to_dict(relative_to=data_folder, recursive=True))
-            )
+            if FILTER_TYPE == "highpass":
+                recording_filt_full = spre.highpass_filter(recording_ps_full, **preprocessing_params["highpass_filter"])
+                preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
+                    dict(highpass=recording_filt_full.to_dict(relative_to=data_folder, recursive=True))
+                )
+                preprocessing_params["filter_type"] = "highpass"
+            elif FILTER_TYPE == "bandpass":
+                recording_filt_full = spre.bandpass_filter(recording_ps_full, **preprocessing_params["bandpass_filter"])
+                preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
+                    dict(bandpass=recording_filt_full.to_dict(relative_to=data_folder, recursive=True))
+                )
+                preprocessing_params["filter_type"] = "bandpass"
+            else:
+                raise ValueError(f"Filter type {FILTER_TYPE} not recognized")
 
             if recording.get_total_duration() < preprocessing_params["min_preprocessing_duration"] and not DEBUG:
                 print(f"\tRecording is too short ({recording.get_total_duration()}s). Skipping further processing")
@@ -317,7 +333,7 @@ if __name__ == "__main__":
             else:
                 # IBL bad channel detection
                 _, channel_labels = spre.detect_bad_channels(
-                    recording_hp_full, **preprocessing_params["detect_bad_channels"]
+                    recording_filt_full, **preprocessing_params["detect_bad_channels"]
                 )
                 dead_channel_mask = channel_labels == "dead"
                 noise_channel_mask = channel_labels == "noise"
@@ -326,9 +342,9 @@ if __name__ == "__main__":
                 print(
                     f"\t\t- dead channels - {np.sum(dead_channel_mask)}\n\t\t- noise channels - {np.sum(noise_channel_mask)}\n\t\t- out channels - {np.sum(out_channel_mask)}"
                 )
-                dead_channel_ids = recording_hp_full.channel_ids[dead_channel_mask]
-                noise_channel_ids = recording_hp_full.channel_ids[noise_channel_mask]
-                out_channel_ids = recording_hp_full.channel_ids[out_channel_mask]
+                dead_channel_ids = recording_filt_full.channel_ids[dead_channel_mask]
+                noise_channel_ids = recording_filt_full.channel_ids[noise_channel_mask]
+                out_channel_ids = recording_filt_full.channel_ids[out_channel_mask]
 
                 all_bad_channel_ids = np.concatenate((dead_channel_ids, noise_channel_ids, out_channel_ids))
 
@@ -347,10 +363,10 @@ if __name__ == "__main__":
                 if not skip_processing:
                     if preprocessing_params["remove_out_channels"]:
                         print(f"\tRemoving {len(out_channel_ids)} out channels")
-                        recording_rm_out = recording_hp_full.remove_channels(out_channel_ids)
+                        recording_rm_out = recording_filt_full.remove_channels(out_channel_ids)
                         preprocessing_notes += f"\n- Removed {len(out_channel_ids)} outside of the brain."
                     else:
-                        recording_rm_out = recording_hp_full
+                        recording_rm_out = recording_filt_full
 
                     recording_processed_cmr = spre.common_reference(
                         recording_rm_out, **preprocessing_params["common_reference"]
@@ -496,7 +512,7 @@ if __name__ == "__main__":
             if skip_processing:
                 # in this case, processed timeseries will not be visualized
                 preprocessing_vizualization_data[recording_name]["timeseries"]["proc"] = None
-                recording_drift = recording_hp_full
+                recording_drift = recording_filt_full
                 drift_relative_folder = data_folder
                 # make a dummy file if too many bad channels to skip downstream processing
                 preprocessing_output_folder.mkdir()
