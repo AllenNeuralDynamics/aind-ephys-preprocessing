@@ -530,7 +530,7 @@ if __name__ == "__main__":
             else:
                 # then dump to pickle
                 with open(results_folder / f"{preprocessingviz_output_filename}.pkl", "wb") as f:
-                    pickle.dump(check_json(preprocessing_vizualization_data), f)
+                    pickle.dump(preprocessing_vizualization_data, f)
 
             t_preprocessing_end = time.perf_counter()
             elapsed_time_preprocessing = np.round(t_preprocessing_end - t_preprocessing_start, 2)
