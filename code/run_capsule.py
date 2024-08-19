@@ -246,6 +246,8 @@ if __name__ == "__main__":
                 )
 
             skip_processing = False
+            vizualization_file_is_json_serializable = True
+
             preprocessing_vizualization_data[recording_name] = {}
             preprocessing_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
             preprocessing_output_folder = results_folder / f"preprocessed_{recording_name}"
@@ -289,6 +291,8 @@ if __name__ == "__main__":
             preprocessing_vizualization_data[recording_name]["timeseries"]["full"] = dict(
                 raw=recording.to_dict(relative_to=data_folder, recursive=True)
             )
+            if not recording.check_serializability("json"):
+                vizualization_file_is_json_serializable = False
             # maybe a recording is from a different source and it doesn't need to be phase shifted
             if "inter_sample_shift" in recording.get_property_keys():
                 recording_ps_full = spre.phase_shift(recording, **preprocessing_params["phase_shift"])
@@ -502,10 +506,11 @@ if __name__ == "__main__":
             preprocessing_vizualization_data[recording_name]["drift"] = dict(
                 recording=recording_drift.to_dict(relative_to=drift_relative_folder, recursive=True)
             )
-            try:            
+
+            if vizualization_file_is_json_serializable:            
                 with open(results_folder / f"{preprocessingviz_output_filename}.json", "w") as f:
                     json.dump(check_json(preprocessing_vizualization_data), f, indent=4)
-            except:
+            else:
                 # then dump to pickle
                 with open(results_folder / f"{preprocessingviz_output_filename}.pkl", "wb") as f:
                     pickle.dump(check_json(preprocessing_vizualization_data), f)
