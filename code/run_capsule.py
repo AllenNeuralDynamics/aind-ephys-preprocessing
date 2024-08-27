@@ -177,6 +177,7 @@ if __name__ == "__main__":
 
     print(f"Running preprocessing with the following parameters:")
     print(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
+    print(f"\tFILTER_TYPE: {tFILTER_TYPE}")
     print(f"\tREMOVE_OUT_CHANNELS: {REMOVE_OUT_CHANNELS}")
     print(f"\tREMOVE_BAD_CHANNELS: {REMOVE_BAD_CHANNELS}")
     print(f"\tMAX BAD CHANNEL FRACTION: {MAX_BAD_CHANNEL_FRACTION}")
