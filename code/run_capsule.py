@@ -456,7 +456,7 @@ if __name__ == "__main__":
                         if concat_motion:
                             rec_corrected_list = []
                             rec_corrected_bin_list = []
-                            for segment_index in range(recording_bin_corrected.get_num_segments()):
+                            for segment_index in range(recording_bin.get_num_segments()):
                                 num_samples = recording_bin.get_num_samples(segment_index)
                                 if segment_index == 0:
                                     start_frame = 0
