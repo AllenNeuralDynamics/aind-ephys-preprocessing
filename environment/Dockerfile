@@ -9,7 +9,7 @@ ARG GIT_ACCESS_TOKEN
 COPY git-askpass /
 
 RUN pip install -U --no-cache-dir \
-    aind-data-schema==0.38.5 \
+    aind-data-schema==1.0.0 \
     spikeinterface[full]==0.101.0 \
     torch==2.2.0 \
     wavpack-numcodecs==0.1.5
