@@ -243,7 +243,7 @@ if __name__ == "__main__":
             session_name = job_config["session_name"]
             recording_name = job_config["recording_name"]
             recording_dict = job_config["recording_dict"]
-            skip_times = job_config["skip_times"]
+            skip_times = job_config.get("skip_times", False)
 
             try:
                 recording = si.load_extractor(recording_dict, base_folder=data_folder)
