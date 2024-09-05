@@ -243,6 +243,7 @@ if __name__ == "__main__":
             session_name = job_config["session_name"]
             recording_name = job_config["recording_name"]
             recording_dict = job_config["recording_dict"]
+            skip_times = job_config["skip_times"]
 
             try:
                 recording = si.load_extractor(recording_dict, base_folder=data_folder)
@@ -251,6 +252,9 @@ if __name__ == "__main__":
                     f"Could not find load recording {recording_name} from dict. "
                     f"Make sure mapping is correct!"
                 )
+            if skip_times:
+                print("Resetting recording timestamps")
+                recording.reset_times()
 
             skip_processing = False
             vizualization_file_is_json_serializable = True
