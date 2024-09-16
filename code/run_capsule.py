@@ -448,7 +448,7 @@ if __name__ == "__main__":
                                 interpolate_motion_kwargs=interpolate_motion_kwargs
                             )
                             recording_corrected = interpolate_motion(
-                                recording_processed,
+                                recording_processed_c,
                                 motion=motion_info["motion"],
                                 **interpolate_motion_kwargs
                             )
