@@ -427,16 +427,13 @@ if __name__ == "__main__":
                         motion_folder = results_folder / f"motion_{recording_name}"
 
                         try:
-                            # interpolation requires float
-                            recording_bin_f = spre.astype(recording_bin, "float32")
-
                             concat_motion = False
                             if recording_processed.get_num_segments() > 1:
-                                recording_bin_c = si.concatenate_recordings([recording_bin_f])
+                                recording_bin_c = si.concatenate_recordings([recording_bin])
                                 recording_processed_c = si.concatenate_recordings([recording_processed])
                                 concat_motion = True
                             else:
-                                recording_bin_c = recording_bin_f
+                                recording_bin_c = recording_bin
                                 recording_processed_c = recording_processed
 
                             recording_bin_corrected, motion_info = spre.correct_motion(
@@ -450,9 +447,8 @@ if __name__ == "__main__":
                                 estimate_motion_kwargs=estimate_motion_kwargs,
                                 interpolate_motion_kwargs=interpolate_motion_kwargs
                             )
-                            recording_processed_f = spre.astype(recording_processed_c, "float32")
                             recording_corrected = interpolate_motion(
-                                recording_processed_f,
+                                recording_processed,
                                 motion=motion_info["motion"],
                                 **interpolate_motion_kwargs
                             )
