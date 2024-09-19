@@ -10,6 +10,11 @@
             "freq_min": 300.0,
             "margin_ms": 5.0
         },
+        "bandpass_filter": {
+            "freq_min": 300.0,
+            "freq_max": 6000.0,
+            "margin_ms": 5.0
+        },
         "phase_shift": {
             "margin_ms": 100.0
         },
@@ -47,13 +52,11 @@
         }
     },
     "motion_correction": {
-        "preset": "nonrigid_fast_and_accurate",
+        "preset": "dredge_fast",
         "detect_kwargs": {},
         "select_kwargs": {},
         "localize_peaks_kwargs": {},
-        "estimate_motion_kwargs": {
-            "time_horizon_s": 120
-        },
+        "estimate_motion_kwargs": {},
         "interpolate_motion_kwargs": {}
     }
 }
