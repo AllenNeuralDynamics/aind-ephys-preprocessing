@@ -250,7 +250,8 @@ if __name__ == "__main__":
                 recording = si.load_extractor(recording_dict, base_folder=data_folder)
             except:
                 raise RuntimeError(
-                    f"Could not find load recording {recording_name} from dict. " f"Make sure mapping is correct!"
+                    f"Could not find load recording {recording_name} from dict. "
+                    f"Make sure mapping is correct!"
                 )
             if skip_times:
                 print("Resetting recording timestamps")
