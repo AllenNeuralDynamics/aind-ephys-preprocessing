@@ -13,6 +13,7 @@ import argparse
 import numpy as np
 from pathlib import Path
 import json
+import pickle
 import time
 import pandas as pd
 from datetime import datetime, timedelta
@@ -137,6 +138,14 @@ params_group.add_argument("--params-file", default=None, help=params_file_help)
 params_group.add_argument("--params-str", default=None, help="Optional json string with parameters")
 
 
+
+def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
+    if recording.check_serializability("json"):
+        recording.dump_to_json(results_folder / f"{base_name}.json", relative_to=relative_to)
+    else:
+        recording.dump_to_pickle(results_folder / f"{base_name}.pkl", relative_to=relative_to)
+
+
 if __name__ == "__main__":
     args = parser.parse_args()
 
@@ -210,42 +219,54 @@ if __name__ == "__main__":
     if MOTION_PRESET is not None:
         motion_params["preset"] = MOTION_PRESET
 
-    # load job json files
-    job_config_json_files = [p for p in data_folder.iterdir() if p.suffix == ".json" and "job" in p.name]
-    print(f"Found {len(job_config_json_files)} json configurations")
+    # load job files
+    job_config_files = [p for p in data_folder.iterdir() if (p.suffix == ".json" or p.suffix == ".pickle" or p.suffix == ".pkl") and "job" in p.name]
+    print(f"Found {len(job_config_files)} configurations")
 
-    if len(job_config_json_files) > 0:
+    if len(job_config_files) > 0:
         ####### PREPROCESSING #######
         print("\n\nPREPROCESSING")
         t_preprocessing_start_all = time.perf_counter()
         preprocessing_vizualization_data = {}
 
-        for job_config_file in job_config_json_files:
+        for job_config_file in job_config_files:
             datetime_start_preproc = datetime.now()
             t_preprocessing_start = time.perf_counter()
             preprocessing_notes = ""
 
-            with open(job_config_file, "r") as f:
-                job_config = json.load(f)
+            if job_config_file.suffix == ".json":
+                with open(job_config_file, "r") as f:
+                    job_config = json.load(f)
+            else:
+                with open(job_config_file, "rb") as f:
+                    job_config = pickle.load(f)
+
             session_name = job_config["session_name"]
             recording_name = job_config["recording_name"]
             recording_dict = job_config["recording_dict"]
+            skip_times = job_config.get("skip_times", False)
 
             try:
                 recording = si.load_extractor(recording_dict, base_folder=data_folder)
             except:
                 raise RuntimeError(
-                    f"Could not find load recording {recording_name} from dict. " f"Make sure mapping is correct!"
+                    f"Could not find load recording {recording_name} from dict. "
+                    f"Make sure mapping is correct!"
                 )
+            if skip_times:
+                print("Resetting recording timestamps")
+                recording.reset_times()
 
             skip_processing = False
+            vizualization_file_is_json_serializable = True
+
             preprocessing_vizualization_data[recording_name] = {}
             preprocessing_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
             preprocessing_output_folder = results_folder / f"preprocessed_{recording_name}"
-            preprocessingviz_output_file = results_folder / f"preprocessedviz_{recording_name}.json"
-            preprocessing_output_json = results_folder / f"preprocessed_{recording_name}.json"
-            motioncorrected_output_json = results_folder / f"motioncorrected_{recording_name}.json"
-            binary_output_json = results_folder / f"binary_{recording_name}.json"
+            preprocessingviz_output_filename = f"preprocessedviz_{recording_name}"
+            preprocessing_output_filename = f"preprocessed_{recording_name}"
+            motioncorrected_output_filename = f"motioncorrected_{recording_name}"
+            binary_output_filename = f"binary_{recording_name}"
 
 
             if DEBUG:
@@ -282,6 +303,8 @@ if __name__ == "__main__":
             preprocessing_vizualization_data[recording_name]["timeseries"]["full"] = dict(
                 raw=recording.to_dict(relative_to=data_folder, recursive=True)
             )
+            if not recording.check_serializability("json"):
+                vizualization_file_is_json_serializable = False
             # maybe a recording is from a different source and it doesn't need to be phase shifted
             if "inter_sample_shift" in recording.get_property_keys():
                 recording_ps_full = spre.phase_shift(recording, **preprocessing_params["phase_shift"])
@@ -514,7 +537,7 @@ if __name__ == "__main__":
                     recording_corrected = None
                     recording_bin_corrected = None
                     if motion_params["compute"]:
-                        from spikeinterface.sortingcomponents.motion_interpolation import interpolate_motion
+                        from spikeinterface.sortingcomponents.motion import interpolate_motion
 
                         preset = motion_params["preset"]
                         print(f"\tComputing motion correction with preset: {preset}")
@@ -527,71 +550,92 @@ if __name__ == "__main__":
 
                         motion_folder = results_folder / f"motion_{recording_name}"
 
-                        concat_motion = False
-                        if recording_processed.get_num_segments() > 1:
-                            recording_bin_c = si.concatenate_recordings([recording_bin])
-                            recording_processed_c = si.concatenate_recordings([recording_processed])
-                            concat_motion = True
-                        else:
-                            recording_bin_c = recording_bin
-                            recording_processed_c = recording_processed
+                        try:
+                            concat_motion = False
+                            if recording_processed.get_num_segments() > 1:
+                                recording_bin_c = si.concatenate_recordings([recording_bin])
+                                recording_processed_c = si.concatenate_recordings([recording_processed])
+                                concat_motion = True
+                            else:
+                                recording_bin_c = recording_bin
+                                recording_processed_c = recording_processed
 
-                        recording_bin_corrected, motion_info = spre.correct_motion(
-                            recording_bin_c,
-                            preset=preset,
-                            folder=motion_folder,
-                            output_motion_info=True,
-                            detect_kwargs=detect_kwargs,
-                            select_kwargs=select_kwargs,
-                            localize_peaks_kwargs=localize_peaks_kwargs,
-                            estimate_motion_kwargs=estimate_motion_kwargs,
-                            interpolate_motion_kwargs=interpolate_motion_kwargs,
-                        )
-                        recording_corrected = interpolate_motion(
-                            recording_processed_c,
-                            motion=motion_info["motion"],
-                            temporal_bins=motion_info["temporal_bins"],
-                            spatial_bins=motion_info["spatial_bins"],
-                            **interpolate_motion_kwargs
-                        )
+                            recording_bin_corrected, motion_info = spre.correct_motion(
+                                recording_bin_c,
+                                preset=preset,
+                                folder=motion_folder,
+                                output_motion_info=True,
+                                detect_kwargs=detect_kwargs,
+                                select_kwargs=select_kwargs,
+                                localize_peaks_kwargs=localize_peaks_kwargs,
+                                estimate_motion_kwargs=estimate_motion_kwargs,
+                                interpolate_motion_kwargs=interpolate_motion_kwargs
+                            )
+                            recording_corrected = interpolate_motion(
+                                recording_processed_c.astype("float32"),
+                                motion=motion_info["motion"],
+                                **interpolate_motion_kwargs
+                            )
 
-                        # split segments back
-                        if concat_motion:
-                            rec_corrected_list = []
-                            rec_corrected_bin_list = []
-                            for segment_index in range(recording_bin_corrected.get_num_segments()):
-                                num_samples = recording_bin.get_num_samples(segment_index)
-                                if segment_index == 0:
-                                    start_frame = 0
-                                else:
-                                    start_frame = recording_bin.get_num_samples(segment_index - 1)
-                                end_frame = start_frame + num_samples
-                                rec_split_corrected = recording_corrected.frame_slice(
-                                    start_frame=start_frame,
-                                    end_frame=end_frame
-                                )
-                                rec_corrected_list.append(rec_split_corrected)
-                                rec_split_bin = recording_bin_corrected.frame_slice(
-                                    start_frame=start_frame,
-                                    end_frame=end_frame
-                                )
-                                rec_corrected_bin_list.append(rec_split_bin)
-                            # append all segments
-                            recording_corrected = si.append_recordings(rec_corrected_list)
-                            recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
+                            # split segments back
+                            if concat_motion:
+                                rec_corrected_list = []
+                                rec_corrected_bin_list = []
+                                for segment_index in range(recording_bin.get_num_segments()):
+                                    num_samples = recording_bin.get_num_samples(segment_index)
+                                    if segment_index == 0:
+                                        start_frame = 0
+                                    else:
+                                        start_frame = recording_bin.get_num_samples(segment_index - 1)
+                                    end_frame = start_frame + num_samples
+                                    rec_split_corrected = recording_corrected.frame_slice(
+                                        start_frame=start_frame,
+                                        end_frame=end_frame
+                                    )
+                                    rec_corrected_list.append(rec_split_corrected)
+                                    rec_split_bin = recording_bin_corrected.frame_slice(
+                                        start_frame=start_frame,
+                                        end_frame=end_frame
+                                    )
+                                    rec_corrected_bin_list.append(rec_split_bin)
+                                # append all segments
+                                recording_corrected = si.append_recordings(rec_corrected_list)
+                                recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
 
-                        if motion_params["apply"]:
-                            print(f"\tApplying motion correction")
-                            recording_processed = recording_corrected
-                            recording_bin = recording_bin_corrected
+                            if motion_params["apply"]:
+                                print(f"\tApplying motion correction")
+                                recording_processed = recording_corrected
+                                recording_bin = recording_bin_corrected
+                        except Exception as e:
+                            print(f"\tMotion correction failed:\n\t{e}")
+                            recording_corrected = None
+                            recording_bin_corrected = None
 
                     # this is used to reload the binary traces downstream
-                    recording_bin.dump_to_json(binary_output_json, relative_to=results_folder)
+                    dump_to_json_or_pickle(
+                        recording_bin,
+                        results_folder,
+                        binary_output_filename,
+                        relative_to=results_folder
+                    )
 
-                    # this is to reload the recordings lazily
-                    recording_processed.dump_to_json(preprocessing_output_json, relative_to=data_folder)
-                    if recording_corrected is not None:
-                        recording_corrected.dump_to_json(motioncorrected_output_json, relative_to=data_folder)
+                    # this is to reload the recordings lazily            
+                    dump_to_json_or_pickle(
+                        recording_processed,
+                        results_folder,
+                        preprocessing_output_filename,
+                        relative_to=results_folder
+                    )
+
+                    # this is to reload the motion-corrected recording lazily
+                    if recording_corrected is not None:     
+                        dump_to_json_or_pickle(
+                            recording_corrected,
+                            results_folder,
+                            motioncorrected_output_filename,
+                            relative_to=results_folder
+                        )
+
                     recording_drift = recording_bin
                     drift_relative_folder = results_folder
 
@@ -609,8 +653,14 @@ if __name__ == "__main__":
             preprocessing_vizualization_data[recording_name]["drift"] = dict(
                 recording=recording_drift.to_dict(relative_to=drift_relative_folder, recursive=True)
             )
-            with open(preprocessingviz_output_file, "w") as f:
-                json.dump(check_json(preprocessing_vizualization_data), f, indent=4)
+
+            if vizualization_file_is_json_serializable:            
+                with open(results_folder / f"{preprocessingviz_output_filename}.json", "w") as f:
+                    json.dump(check_json(preprocessing_vizualization_data), f, indent=4)
+            else:
+                # then dump to pickle
+                with open(results_folder / f"{preprocessingviz_output_filename}.pkl", "wb") as f:
+                    pickle.dump(preprocessing_vizualization_data, f)
 
             t_preprocessing_end = time.perf_counter()
             elapsed_time_preprocessing = np.round(t_preprocessing_end - t_preprocessing_start, 2)
