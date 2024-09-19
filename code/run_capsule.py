@@ -262,10 +262,10 @@ if __name__ == "__main__":
             preprocessing_vizualization_data[recording_name] = {}
             preprocessing_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
             preprocessing_output_folder = results_folder / f"preprocessed_{recording_name}"
-            preprocessingviz_output_file = results_folder / f"preprocessedviz_{recording_name}.json"
-            preprocessing_output_json = results_folder / f"preprocessed_{recording_name}.json"
-            motioncorrected_output_json = results_folder / f"motioncorrected_{recording_name}.json"
-            binary_output_json = results_folder / f"binary_{recording_name}.json"
+            preprocessingviz_output_filename = f"preprocessedviz_{recording_name}"
+            preprocessing_output_filename = f"preprocessed_{recording_name}"
+            motioncorrected_output_filename = f"motioncorrected_{recording_name}"
+            binary_output_filename = f"binary_{recording_name}"
 
 
             if DEBUG:
@@ -528,8 +528,6 @@ if __name__ == "__main__":
                         else:
                             print(f"\tFound no optical stimulation artifacts")
                             preprocessing_notes += f"\n- Found no optical stimulation artifacts.\n"
-                    # save to binary to speed up downstream processing
-                    recording_bin = recording_processed.save(folder=preprocessing_output_folder)
 
                     # save to binary to speed up downstream processing
                     recording_bin = recording_processed.save(folder=preprocessing_output_folder)
