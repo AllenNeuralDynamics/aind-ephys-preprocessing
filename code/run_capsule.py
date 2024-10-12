@@ -19,7 +19,6 @@ from datetime import datetime, timedelta
 
 # SPIKEINTERFACE
 import spikeinterface as si
-import spikeinterface.extractors as se
 import spikeinterface.preprocessing as spre
 
 from spikeinterface.core.core_tools import check_json
@@ -35,6 +34,7 @@ data_folder = Path("../data/")
 scratch_folder = Path("../scratch/")
 results_folder = Path("../results/")
 
+motion_presets = spre.get_motion_presets()
 
 # define argument parser
 parser = argparse.ArgumentParser(description="Preprocess AIND Neurpixels data")
@@ -42,8 +42,8 @@ parser = argparse.ArgumentParser(description="Preprocess AIND Neurpixels data")
 # positional arguments
 denoising_group = parser.add_mutually_exclusive_group()
 denoising_help = "Which denoising strategy to use. Can be 'cmr' or 'destripe'"
-denoising_group.add_argument("--denoising", choices=["cmr", "destripe"], help=denoising_help)
-denoising_group.add_argument("static_denoising", nargs="?", default="cmr", help=denoising_help)
+denoising_group.add_argument("--denoising", choices=["cmr", "destripe"], default="cmr", help=denoising_help)
+denoising_group.add_argument("static_denoising", nargs="?", help=denoising_help)
 
 filter_group = parser.add_mutually_exclusive_group()
 filter_help = "Which filter to use. Can be 'highpass' or 'bandpass'"
@@ -82,11 +82,11 @@ motion_correction_group.add_argument("static_motion", nargs="?", default="comput
 
 motion_preset_group = parser.add_mutually_exclusive_group()
 motion_preset_help = (
-    "What motion preset to use. Can be 'nonrigid_accurate', 'kilosort_like', or 'nonrigid_fast_and_accurate'"
+    f"What motion preset to use. Supported presets are: {', '.join(motion_presets)}."
 )
 motion_preset_group.add_argument(
     "--motion-preset",
-    choices=["nonrigid_accurate", "kilosort_like", "nonrigid_fast_and_accurate"],
+    choices=motion_presets,
     help=motion_preset_help,
 )
 motion_preset_group.add_argument("static_motion_preset", nargs="?", default=None, help=motion_preset_help)
@@ -135,7 +135,7 @@ def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
 if __name__ == "__main__":
     args = parser.parse_args()
 
-    DENOISING_STRATEGY = args.denoising or args.static_denoising
+    DENOISING_STRATEGY = args.static_denoising or args.denoising
     FILTER_TYPE = args.filter_type or args.static_filter_type
     REMOVE_OUT_CHANNELS = False if args.no_remove_out_channels else args.static_remove_out_channels == "true"
     REMOVE_BAD_CHANNELS = False if args.no_remove_bad_channels else args.static_remove_bad_channels == "true"
