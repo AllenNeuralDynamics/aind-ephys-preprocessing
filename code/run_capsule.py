@@ -42,8 +42,8 @@ parser = argparse.ArgumentParser(description="Preprocess AIND Neurpixels data")
 # positional arguments
 denoising_group = parser.add_mutually_exclusive_group()
 denoising_help = "Which denoising strategy to use. Can be 'cmr' or 'destripe'"
-denoising_group.add_argument("--denoising", choices=["cmr", "destripe"], default="cmr", help=denoising_help)
-denoising_group.add_argument("static_denoising", nargs="?", help=denoising_help)
+denoising_group.add_argument("--denoising", choices=["cmr", "destripe"], help=denoising_help)
+denoising_group.add_argument("static_denoising", nargs="?", default="cmr", help=denoising_help)
 
 filter_group = parser.add_mutually_exclusive_group()
 filter_help = "Which filter to use. Can be 'highpass' or 'bandpass'"
@@ -135,7 +135,7 @@ def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
 if __name__ == "__main__":
     args = parser.parse_args()
 
-    DENOISING_STRATEGY = args.static_denoising or args.denoising
+    DENOISING_STRATEGY = args.denoising or args.static_denoising
     FILTER_TYPE = args.filter_type or args.static_filter_type
     REMOVE_OUT_CHANNELS = False if args.no_remove_out_channels else args.static_remove_out_channels == "true"
     REMOVE_BAD_CHANNELS = False if args.no_remove_bad_channels else args.static_remove_bad_channels == "true"
