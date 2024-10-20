@@ -20,7 +20,6 @@ from datetime import datetime, timedelta
 
 # SPIKEINTERFACE
 import spikeinterface as si
-import spikeinterface.extractors as se
 import spikeinterface.preprocessing as spre
 
 from spikeinterface.core.core_tools import check_json
@@ -36,15 +35,10 @@ data_folder = Path("../data/")
 scratch_folder = Path("../scratch/")
 results_folder = Path("../results/")
 
+motion_presets = spre.get_motion_presets()
 
 # define argument parser
 parser = argparse.ArgumentParser(description="Preprocess AIND Neurpixels data")
-
-debug_group = parser.add_mutually_exclusive_group()
-debug_help = "Whether to run in DEBUG mode"
-debug_group.add_argument("--debug", action="store_true", help=debug_help)
-debug_group.add_argument("static_debug", nargs="?", default="false", help=debug_help)
-
 
 # positional arguments
 denoising_group = parser.add_mutually_exclusive_group()
@@ -89,11 +83,11 @@ motion_correction_group.add_argument("static_motion", nargs="?", default="comput
 
 motion_preset_group = parser.add_mutually_exclusive_group()
 motion_preset_help = (
-    "What motion preset to use. Can be 'nonrigid_accurate', 'kilosort_like', or 'nonrigid_fast_and_accurate'"
+    f"What motion preset to use. Supported presets are: {', '.join(motion_presets)}."
 )
 motion_preset_group.add_argument(
     "--motion-preset",
-    choices=["nonrigid_accurate", "kilosort_like", "nonrigid_fast_and_accurate"],
+    choices=motion_presets,
     help=motion_preset_help,
 )
 motion_preset_group.add_argument("static_motion_preset", nargs="?", default=None, help=motion_preset_help)
@@ -115,13 +109,6 @@ t_stop_help = (
 )
 t_stop_group.add_argument("static_t_stop", nargs="?", default=None, help=t_stop_help)
 t_stop_group.add_argument("--t-stop", default=None, help=t_stop_help)
-
-debug_duration_group = parser.add_mutually_exclusive_group()
-debug_duration_help = (
-    "Duration of clipped recording in debug mode. Default is 30 seconds. Only used if debug is enabled"
-)
-debug_duration_group.add_argument("--debug-duration", default=30, help=debug_duration_help)
-debug_duration_group.add_argument("static_debug_duration", nargs="?", default=None, help=debug_duration_help)
 
 n_jobs_group = parser.add_mutually_exclusive_group()
 n_jobs_help = (
@@ -149,7 +136,6 @@ def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
 if __name__ == "__main__":
     args = parser.parse_args()
 
-    DEBUG = args.debug or args.static_debug == "true"
     DENOISING_STRATEGY = args.denoising or args.static_denoising
     FILTER_TYPE = args.filter_type or args.static_filter_type
     REMOVE_OUT_CHANNELS = False if args.no_remove_out_channels else args.static_remove_out_channels == "true"
@@ -165,7 +151,6 @@ if __name__ == "__main__":
     T_STOP = args.static_t_stop or args.t_stop
     if isinstance(T_STOP, str) and T_STOP == "":
         T_STOP = None
-    DEBUG_DURATION = float(args.static_debug_duration or args.debug_duration)
 
     N_JOBS = args.static_n_jobs or args.n_jobs
     N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
@@ -188,9 +173,6 @@ if __name__ == "__main__":
     print(f"\tT_START: {T_START}")
     print(f"\tT_STOP: {T_STOP}")
     print(f"\tN_JOBS: {N_JOBS}")
-
-    if DEBUG:
-        print(f"\nDEBUG ENABLED - Only running with {DEBUG_DURATION} seconds\n")
 
     if PARAMS_FILE is not None:
         print(f"\nUsing custom parameter file: {PARAMS_FILE}")
@@ -245,6 +227,7 @@ if __name__ == "__main__":
             recording_name = job_config["recording_name"]
             recording_dict = job_config["recording_dict"]
             skip_times = job_config.get("skip_times", False)
+            debug = job_config.get("debug", False)
 
             try:
                 recording = si.load_extractor(recording_dict, base_folder=data_folder)
@@ -268,20 +251,9 @@ if __name__ == "__main__":
             motioncorrected_output_filename = f"motioncorrected_{recording_name}"
             binary_output_filename = f"binary_{recording_name}"
 
-
-            if DEBUG:
-                recording_list = []
-                for segment_index in range(recording.get_num_segments()):
-                    recording_one = si.split_recording(recording)[segment_index]
-                    recording_one = recording_one.frame_slice(
-                        start_frame=0, end_frame=int(DEBUG_DURATION * recording.sampling_frequency)
-                    )
-                    recording_list.append(recording_one)
-                recording = si.append_recordings(recording_list)
-
             print(f"Preprocessing recording: {session_name} - {recording_name}")
 
-            if (T_START is not None or T_STOP is not None) and not DEBUG:
+            if (T_START is not None or T_STOP is not None):
                 if recording.get_num_segments() > 1:
                     print(f"\tRecording has multiple segments. Ignoring T_START and T_STOP")
                 else:
@@ -329,7 +301,7 @@ if __name__ == "__main__":
             else:
                 raise ValueError(f"Filter type {FILTER_TYPE} not recognized")
 
-            if recording.get_total_duration() < preprocessing_params["min_preprocessing_duration"] and not DEBUG:
+            if recording.get_total_duration() < preprocessing_params["min_preprocessing_duration"] and not debug:
                 print(f"\tRecording is too short ({recording.get_total_duration()}s). Skipping further processing")
                 preprocessing_notes += (
                     f"\n- Recording is too short ({recording.get_total_duration()}s). Skipping further processing\n"
