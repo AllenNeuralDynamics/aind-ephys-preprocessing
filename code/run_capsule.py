@@ -426,6 +426,8 @@ if __name__ == "__main__":
                                             pulse_frequencies = behavior_data[f"TP_Frequency_{active_laser_id}"]
                                             train_durations = behavior_data[f"TP_Duration_{active_laser_id}"]
                             else:
+                                import spikeinterface.extractors as se
+
                                 ecephys_clipped_folders = [p for p in session_folder.glob("**/ecephys_clipped")]
                                 if len(ecephys_clipped_folders) == 1:
                                     ecephys_folder = ecephys_clipped_folders[0]
