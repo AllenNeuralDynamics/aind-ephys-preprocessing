@@ -205,6 +205,14 @@ if __name__ == "__main__":
     job_config_files = [p for p in data_folder.iterdir() if (p.suffix == ".json" or p.suffix == ".pickle" or p.suffix == ".pkl") and "job" in p.name]
     print(f"Found {len(job_config_files)} configurations")
 
+    # ephys raw folder
+    ecephys_session = None
+    ecephys_sessions = [
+        p for p in data_folder.iterdir() if "ecephys" in p.name.lower() or "behavior" in p.name.lower()
+    ]
+    if len(ecephys_sessions) == 1:
+        ecephys_session = ecephys_sessions[0]
+
     if len(job_config_files) > 0:
         ####### PREPROCESSING #######
         print("\n\nPREPROCESSING")
@@ -381,10 +389,9 @@ if __name__ == "__main__":
                     # remove artifacts
                     if preprocessing_params["apply_remove_artifacts"]:
                         # the ecephys folder is mapped as "ecephys_session"
-                        session_folder = data_folder / "ecephys_session"
                         stimulation_trigger_times = []
 
-                        if session_folder.exists():
+                        if ecephys_session.is_dir():
                             # Move to its own capsule for flexibility???
                             print(f"\tRemoving optical stimulation artifacts")
                             remove_artifact_params = preprocessing_params["remove_artifacts"]
@@ -397,19 +404,23 @@ if __name__ == "__main__":
                             inter_pulse_intervals = None
 
                             # check if HARP system
-                            harp_folders = [p for p in session_folder.glob("**/HarpFolder")]
-
+                            behavior_folder = None
+                            harp_folders = [p for p in ecephys_session.glob("**/raw.harp")]
                             if len(harp_folders) == 1:
-                                behavior_data = None
-                                behavior_folders = [p for p in session_folder.glob("**/TrainingFolder")]
+                                harp_folder = harp_folders[0]
+                                behavior_folder = harp_folder.parent
+                            elif len(harp_folders) == 0:
+                                # this is for back-compatibility
+                                harp_folders = [p for p in ecephys_session.glob("**/HarpFolder")]
+                                behavior_folders = [p for p in ecephys_session.glob("**/TrainingFolder")]
                                 if len(behavior_folders) == 1:
                                     behavior_folder = behavior_folders[0]
-                                    json_files = [p for p in behavior_folder.iterdir() if p.suffix == ".json"]
-                                    if len(json_files) == 1:
-                                        json_file = json_files[0]
-                                        with open(json_file) as f:
-                                            behavior_data = json.load(open(json_file))
-                                if behavior_data is not None:
+                            if behavior_folder is not None:
+                                json_files = [p for p in behavior_folder.iterdir() if p.suffix == ".json"]
+                                if len(json_files) == 1:
+                                    json_file = json_files[0]
+                                    with open(json_file) as f:
+                                        behavior_data = json.load(open(json_file))
                                     laser_info = behavior_data.get("Opto_dialog", None)
                                     stimulation_trigger_times = behavior_data.get("B_OptogeneticsTimeHarp", None)
                                     if laser_info is not None and stimulation_trigger_times is not None:
@@ -425,10 +436,12 @@ if __name__ == "__main__":
                                             pulse_durations = behavior_data[f"TP_PulseDur_{active_laser_id}"]
                                             pulse_frequencies = behavior_data[f"TP_Frequency_{active_laser_id}"]
                                             train_durations = behavior_data[f"TP_Duration_{active_laser_id}"]
+                                else:
+                                    print("Found multiple event json files. Could not determine artifacts")
                             else:
                                 import spikeinterface.extractors as se
 
-                                ecephys_clipped_folders = [p for p in session_folder.glob("**/ecephys_clipped")]
+                                ecephys_clipped_folders = [p for p in ecephys_session.glob("**/ecephys_clipped")]
                                 if len(ecephys_clipped_folders) == 1:
                                     ecephys_folder = ecephys_clipped_folders[0]
 
