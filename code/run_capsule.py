@@ -10,6 +10,7 @@ import os
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import argparse
+import shutil
 import numpy as np
 from pathlib import Path
 import json
@@ -203,6 +204,14 @@ if __name__ == "__main__":
     # load job files
     job_config_files = [p for p in data_folder.iterdir() if (p.suffix == ".json" or p.suffix == ".pickle" or p.suffix == ".pkl") and "job" in p.name]
     print(f"Found {len(job_config_files)} configurations")
+
+    # copy all AIND metadata json files to results
+    ecephys_session_folders = [
+        p for p in data_folder.iterdir() if "ecephys" in p.name.lower() or "behavior" in p.name.lower()
+    ]
+    ecephys_session_folder = None
+    if len(ecephys_session_folders) == 1:
+        ecephys_session_folder = ecephys_session_folders[0]
 
     if len(job_config_files) > 0:
         ####### PREPROCESSING #######
@@ -535,6 +544,13 @@ if __name__ == "__main__":
             )
             with open(preprocessing_output_process_json, "w") as f:
                 f.write(preprocessing_process.model_dump_json(indent=3))
+
+            # copy data_description and subject json
+            if ecephys_session_folder is not None:
+                metadata_json_files = [p for p in ecephys_session_folder.iterdir() if p.suffix == ".json"]
+                for metadata_file in metadata_json_files:
+                    if "data_description" in metadata_file.name or "subject" in metadata_file.name:
+                        shutil.copy(metadata_file, results_folder / f"{recording_name}_{metadata_file.name}")
 
         t_preprocessing_end_all = time.perf_counter()
         elapsed_time_preprocessing_all = np.round(t_preprocessing_end_all - t_preprocessing_start_all, 2)
