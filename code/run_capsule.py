@@ -16,6 +16,7 @@ from pathlib import Path
 import json
 import pickle
 import time
+import logging
 from datetime import datetime, timedelta
 
 # SPIKEINTERFACE
@@ -168,21 +169,21 @@ if __name__ == "__main__":
     N_JOBS_CO = os.getenv("CO_CPUS")
     N_JOBS = int(N_JOBS_CO) if N_JOBS_CO is not None else N_JOBS
 
-    print(f"Running preprocessing with the following parameters:")
-    print(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
-    print(f"\tFILTER TYPE: {FILTER_TYPE}")
-    print(f"\tREMOVE_OUT_CHANNELS: {REMOVE_OUT_CHANNELS}")
-    print(f"\tREMOVE_BAD_CHANNELS: {REMOVE_BAD_CHANNELS}")
-    print(f"\tMAX BAD CHANNEL FRACTION: {MAX_BAD_CHANNEL_FRACTION}")
-    print(f"\tCOMPUTE_MOTION: {COMPUTE_MOTION}")
-    print(f"\tAPPLY_MOTION: {APPLY_MOTION}")
-    print(f"\tMOTION PRESET: {MOTION_PRESET}")
-    print(f"\tT_START: {T_START}")
-    print(f"\tT_STOP: {T_STOP}")
-    print(f"\tN_JOBS: {N_JOBS}")
+    logging.info(f"Running preprocessing with the following parameters:")
+    logging.info(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
+    logging.info(f"\tFILTER TYPE: {FILTER_TYPE}")
+    logging.info(f"\tREMOVE_OUT_CHANNELS: {REMOVE_OUT_CHANNELS}")
+    logging.info(f"\tREMOVE_BAD_CHANNELS: {REMOVE_BAD_CHANNELS}")
+    logging.info(f"\tMAX BAD CHANNEL FRACTION: {MAX_BAD_CHANNEL_FRACTION}")
+    logging.info(f"\tCOMPUTE_MOTION: {COMPUTE_MOTION}")
+    logging.info(f"\tAPPLY_MOTION: {APPLY_MOTION}")
+    logging.info(f"\tMOTION PRESET: {MOTION_PRESET}")
+    logging.info(f"\tT_START: {T_START}")
+    logging.info(f"\tT_STOP: {T_STOP}")
+    logging.info(f"\tN_JOBS: {N_JOBS}")
 
     if PARAMS_FILE is not None:
-        print(f"\nUsing custom parameter file: {PARAMS_FILE}")
+        logging.info(f"\nUsing custom parameter file: {PARAMS_FILE}")
         with open(PARAMS_FILE, "r") as f:
             processing_params = json.load(f)
     elif PARAMS_STR is not None:
@@ -210,7 +211,7 @@ if __name__ == "__main__":
 
     # load job files
     job_config_files = [p for p in data_folder.iterdir() if (p.suffix == ".json" or p.suffix == ".pickle" or p.suffix == ".pkl") and "job" in p.name]
-    print(f"Found {len(job_config_files)} configurations")
+    logging.info(f"Found {len(job_config_files)} configurations")
 
     # copy all AIND metadata json files to results
     ecephys_session_folders = [
@@ -241,7 +242,7 @@ if __name__ == "__main__":
 
     if len(job_config_files) > 0:
         ####### PREPROCESSING #######
-        print("\n\nPREPROCESSING")
+        logging.info("\n\nPREPROCESSING")
         t_preprocessing_start_all = time.perf_counter()
         preprocessing_vizualization_data = {}
 
@@ -271,7 +272,7 @@ if __name__ == "__main__":
                     f"Make sure mapping is correct!"
                 )
             if skip_times:
-                print("Resetting recording timestamps")
+                logging.info("Resetting recording timestamps")
                 recording.reset_times()
 
             skip_processing = False
@@ -285,11 +286,11 @@ if __name__ == "__main__":
             motioncorrected_output_filename = f"motioncorrected_{recording_name}"
             binary_output_filename = f"binary_{recording_name}"
 
-            print(f"Preprocessing recording: {session_name} - {recording_name}")
+            logging.info(f"Preprocessing recording: {session_name} - {recording_name}")
 
             if (T_START is not None or T_STOP is not None):
                 if recording.get_num_segments() > 1:
-                    print(f"\tRecording has multiple segments. Ignoring T_START and T_STOP")
+                    logging.info(f"\tRecording has multiple segments. Ignoring T_START and T_STOP")
                 else:
                     if T_START is None:
                         T_START = 0
@@ -298,12 +299,12 @@ if __name__ == "__main__":
                     T_START = float(T_START)
                     T_STOP = float(T_STOP)
                     T_STOP = min(T_STOP, recording.get_duration())
-                    print(f"\tOriginal recording duration: {recording.get_duration()} -- Clipping to {T_START}-{T_STOP} s")
+                    logging.info(f"\tOriginal recording duration: {recording.get_duration()} -- Clipping to {T_START}-{T_STOP} s")
                     start_frame = int(T_START * recording.get_sampling_frequency())
                     end_frame = int(T_STOP * recording.get_sampling_frequency() + 1)
                     recording = recording.frame_slice(start_frame=start_frame, end_frame=end_frame)
 
-            print(f"\tDuration: {np.round(recording.get_total_duration(), 2)} s")
+            logging.info(f"\tDuration: {np.round(recording.get_total_duration(), 2)} s")
 
             preprocessing_vizualization_data[recording_name]["timeseries"] = dict()
             preprocessing_vizualization_data[recording_name]["timeseries"]["full"] = dict(
@@ -336,7 +337,7 @@ if __name__ == "__main__":
                 raise ValueError(f"Filter type {FILTER_TYPE} not recognized")
 
             if recording.get_total_duration() < preprocessing_params["min_preprocessing_duration"] and not debug:
-                print(f"\tRecording is too short ({recording.get_total_duration()}s). Skipping further processing")
+                logging.info(f"\tRecording is too short ({recording.get_total_duration()}s). Skipping further processing")
                 preprocessing_notes += (
                     f"\n- Recording is too short ({recording.get_total_duration()}s). Skipping further processing\n"
                 )
@@ -350,8 +351,8 @@ if __name__ == "__main__":
                 dead_channel_mask = channel_labels == "dead"
                 noise_channel_mask = channel_labels == "noise"
                 out_channel_mask = channel_labels == "out"
-                print(f"\tBad channel detection:")
-                print(
+                logging.info(f"\tBad channel detection:")
+                logging.info(
                     f"\t\t- dead channels - {np.sum(dead_channel_mask)}\n\t\t- noise channels - {np.sum(noise_channel_mask)}\n\t\t- out channels - {np.sum(out_channel_mask)}"
                 )
                 dead_channel_ids = recording_filt_full.channel_ids[dead_channel_mask]
@@ -363,18 +364,18 @@ if __name__ == "__main__":
                 skip_processing = False
                 max_bad_channel_fraction = preprocessing_params["max_bad_channel_fraction"]
                 if len(all_bad_channel_ids) >= int(max_bad_channel_fraction * recording.get_num_channels()):
-                    print(f"\tMore than {max_bad_channel_fraction * 100}% bad channels ({len(all_bad_channel_ids)}). ")
+                    logging.info(f"\tMore than {max_bad_channel_fraction * 100}% bad channels ({len(all_bad_channel_ids)}). ")
                     preprocessing_notes += f"\n- Found {len(all_bad_channel_ids)} bad channels."
                     if preprocessing_params["remove_bad_channels"]:
                         skip_processing = True
-                        print("\tSkipping further processing for this recording.")
+                        logging.info("\tSkipping further processing for this recording.")
                         preprocessing_notes += f" Skipping further processing for this recording.\n"
                     else:
                         preprocessing_notes += "\n"
 
                 if not skip_processing:
                     if preprocessing_params["remove_out_channels"]:
-                        print(f"\tRemoving {len(out_channel_ids)} out channels")
+                        logging.info(f"\tRemoving {len(out_channel_ids)} out channels")
                         recording_rm_out = recording_filt_full.remove_channels(out_channel_ids)
                         preprocessing_notes += f"\n- Removed {len(out_channel_ids)} outside of the brain."
                     else:
@@ -409,7 +410,7 @@ if __name__ == "__main__":
                         recording_processed = recording_hp_spatial
 
                     if preprocessing_params["remove_bad_channels"]:
-                        print(f"\tRemoving {len(bad_channel_ids)} channels after {denoising_strategy} preprocessing")
+                        logging.info(f"\tRemoving {len(bad_channel_ids)} channels after {denoising_strategy} preprocessing")
                         recording_processed = recording_processed.remove_channels(bad_channel_ids)
                         preprocessing_notes += f"\n- Removed {len(bad_channel_ids)} bad channels after preprocessing.\n"
 
@@ -423,7 +424,7 @@ if __name__ == "__main__":
                         from spikeinterface.sortingcomponents.motion import interpolate_motion
 
                         preset = motion_params["preset"]
-                        print(f"\tComputing motion correction with preset: {preset}")
+                        logging.info(f"\tComputing motion correction with preset: {preset}")
 
                         detect_kwargs = motion_params.get("detect_kwargs", {})
                         select_kwargs = motion_params.get("select_kwargs", {})
@@ -486,11 +487,11 @@ if __name__ == "__main__":
                                 recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
 
                             if motion_params["apply"]:
-                                print(f"\tApplying motion correction")
+                                logging.info(f"\tApplying motion correction")
                                 recording_processed = recording_corrected
                                 recording_bin = recording_bin_corrected
                         except Exception as e:
-                            print(f"\tMotion correction failed:\n\t{e}")
+                            logging.info(f"\tMotion correction failed:\n\t{e}")
                             recording_corrected = None
                             recording_bin_corrected = None
 
@@ -581,4 +582,4 @@ if __name__ == "__main__":
         t_preprocessing_end_all = time.perf_counter()
         elapsed_time_preprocessing_all = np.round(t_preprocessing_end_all - t_preprocessing_start_all, 2)
 
-        print(f"PREPROCESSING time: {elapsed_time_preprocessing_all}s")
+        logging.info(f"PREPROCESSING time: {elapsed_time_preprocessing_all}s")
