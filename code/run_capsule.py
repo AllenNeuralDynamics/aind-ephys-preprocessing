@@ -27,6 +27,13 @@ from spikeinterface.core.core_tools import check_json
 # AIND
 from aind_data_schema.core.processing import DataProcess
 
+try:
+    from aind_log_utils import log
+
+    HAVE_AIND_LOG_UTILS = True
+except ImportError:
+    HAVE_AIND_LOG_UTILS = False
+
 URL = "https://github.com/AllenNeuralDynamics/aind-ephys-preprocessing"
 VERSION = "1.0"
 
@@ -212,6 +219,25 @@ if __name__ == "__main__":
     ecephys_session_folder = None
     if len(ecephys_session_folders) == 1:
         ecephys_session_folder = ecephys_session_folders[0]
+        if HAVE_AIND_LOG_UTILS:
+            # look for subject.json and data_description.json files
+            subject_json = ecephys_session_folders / "subject.json"
+            subject_id = "undefined"
+            if subject_json.is_file():
+                subject_data = json.load(open(subject_json, "r"))
+                subject_id = subject_data["subject_id"]
+
+            data_description_json = ecephys_session_folders / "data_description.json"
+            session_name = "undefined"
+            if data_description_json.is_file():
+                data_description = json.load(open(data_description_json, "r"))
+                session_name = data_description["name"]
+
+            log.setup_logging(
+                "Job Dispatch Ecephys",
+                mouse_id=subject_id,
+                session_name=session_name,
+            )
 
     if len(job_config_files) > 0:
         ####### PREPROCESSING #######
