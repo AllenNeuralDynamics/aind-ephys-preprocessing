@@ -221,13 +221,13 @@ if __name__ == "__main__":
         ecephys_session_folder = ecephys_session_folders[0]
         if HAVE_AIND_LOG_UTILS:
             # look for subject.json and data_description.json files
-            subject_json = ecephys_session_folders / "subject.json"
+            subject_json = ecephys_session_folder / "subject.json"
             subject_id = "undefined"
             if subject_json.is_file():
                 subject_data = json.load(open(subject_json, "r"))
                 subject_id = subject_data["subject_id"]
 
-            data_description_json = ecephys_session_folders / "data_description.json"
+            data_description_json = ecephys_session_folder / "data_description.json"
             session_name = "undefined"
             if data_description_json.is_file():
                 data_description = json.load(open(data_description_json, "r"))
