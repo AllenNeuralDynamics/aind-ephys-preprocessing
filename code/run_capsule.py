@@ -491,7 +491,7 @@ if __name__ == "__main__":
                                 recording_processed = recording_corrected
                                 recording_bin = recording_bin_corrected
                         except Exception as e:
-                            logging.info(f"\tMotion correction failed:\n\t{e}")
+                            logging.info(f"\tMotion correction failed!")
                             recording_corrected = None
                             recording_bin_corrected = None
 
