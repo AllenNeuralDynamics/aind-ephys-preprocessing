@@ -169,6 +169,38 @@ if __name__ == "__main__":
     N_JOBS_CO = os.getenv("CO_CPUS")
     N_JOBS = int(N_JOBS_CO) if N_JOBS_CO is not None else N_JOBS
 
+    # setup AIND logging before any other logging call
+    ecephys_session_folders = [
+        p for p in data_folder.iterdir() if "ecephys" in p.name.lower() or "behavior" in p.name.lower()
+    ]
+    ecephys_session_folder = None
+    aind_log_setup = False
+    if len(ecephys_session_folders) == 1:
+        ecephys_session_folder = ecephys_session_folders[0]
+        if HAVE_AIND_LOG_UTILS:
+            # look for subject.json and data_description.json files
+            subject_json = ecephys_session_folder / "subject.json"
+            subject_id = "undefined"
+            if subject_json.is_file():
+                subject_data = json.load(open(subject_json, "r"))
+                subject_id = subject_data["subject_id"]
+
+            data_description_json = ecephys_session_folder / "data_description.json"
+            session_name = "undefined"
+            if data_description_json.is_file():
+                data_description = json.load(open(data_description_json, "r"))
+                session_name = data_description["name"]
+
+            log.setup_logging(
+                "Preprocess Ecephys",
+                mouse_id=subject_id,
+                session_name=session_name,
+            )
+            aind_log_setup = True
+
+    if not aind_log_setup:
+        logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     logging.info(f"Running preprocessing with the following parameters:")
     logging.info(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
     logging.info(f"\tFILTER TYPE: {FILTER_TYPE}")
@@ -212,33 +244,6 @@ if __name__ == "__main__":
     # load job files
     job_config_files = [p for p in data_folder.iterdir() if (p.suffix == ".json" or p.suffix == ".pickle" or p.suffix == ".pkl") and "job" in p.name]
     logging.info(f"Found {len(job_config_files)} configurations")
-
-    # copy all AIND metadata json files to results
-    ecephys_session_folders = [
-        p for p in data_folder.iterdir() if "ecephys" in p.name.lower() or "behavior" in p.name.lower()
-    ]
-    ecephys_session_folder = None
-    if len(ecephys_session_folders) == 1:
-        ecephys_session_folder = ecephys_session_folders[0]
-        if HAVE_AIND_LOG_UTILS:
-            # look for subject.json and data_description.json files
-            subject_json = ecephys_session_folder / "subject.json"
-            subject_id = "undefined"
-            if subject_json.is_file():
-                subject_data = json.load(open(subject_json, "r"))
-                subject_id = subject_data["subject_id"]
-
-            data_description_json = ecephys_session_folder / "data_description.json"
-            session_name = "undefined"
-            if data_description_json.is_file():
-                data_description = json.load(open(data_description_json, "r"))
-                session_name = data_description["name"]
-
-            log.setup_logging(
-                "Preprocess Ecephys",
-                mouse_id=subject_id,
-                session_name=session_name,
-            )
 
     if len(job_config_files) > 0:
         ####### PREPROCESSING #######
