@@ -10,6 +10,7 @@ import os
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import argparse
+import sys
 import shutil
 import numpy as np
 from pathlib import Path
@@ -199,7 +200,7 @@ if __name__ == "__main__":
             aind_log_setup = True
 
     if not aind_log_setup:
-        logging.basicConfig(level=logging.INFO, format="%(message)s")
+        logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(message)s")
 
     logging.info(f"Running preprocessing with the following parameters:")
     logging.info(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
