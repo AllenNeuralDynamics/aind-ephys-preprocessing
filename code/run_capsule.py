@@ -194,8 +194,8 @@ if __name__ == "__main__":
 
             log.setup_logging(
                 "Preprocess Ecephys",
-                mouse_id=subject_id,
-                session_name=session_name,
+                subject_id=subject_id,
+                asset_name=session_name,
             )
             aind_log_setup = True
 
