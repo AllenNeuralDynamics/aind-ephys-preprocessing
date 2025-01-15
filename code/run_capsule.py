@@ -10,6 +10,8 @@ import os
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import argparse
+import sys
+import logging
 import numpy as np
 from pathlib import Path
 import json
@@ -26,6 +28,13 @@ from spikeinterface.core.core_tools import check_json
 
 # AIND
 from aind_data_schema.core.processing import DataProcess
+
+try:
+    from aind_log_utils import log
+
+    HAVE_AIND_LOG_UTILS = True
+except ImportError:
+    HAVE_AIND_LOG_UTILS = False
 
 URL = "https://github.com/AllenNeuralDynamics/aind-ephys-preprocessing"
 VERSION = "1.0"
@@ -161,21 +170,53 @@ if __name__ == "__main__":
     N_JOBS_CO = os.getenv("CO_CPUS")
     N_JOBS = int(N_JOBS_CO) if N_JOBS_CO is not None else N_JOBS
 
-    print(f"Running preprocessing with the following parameters:")
-    print(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
-    print(f"\tFILTER TYPE: {FILTER_TYPE}")
-    print(f"\tREMOVE_OUT_CHANNELS: {REMOVE_OUT_CHANNELS}")
-    print(f"\tREMOVE_BAD_CHANNELS: {REMOVE_BAD_CHANNELS}")
-    print(f"\tMAX BAD CHANNEL FRACTION: {MAX_BAD_CHANNEL_FRACTION}")
-    print(f"\tCOMPUTE_MOTION: {COMPUTE_MOTION}")
-    print(f"\tAPPLY_MOTION: {APPLY_MOTION}")
-    print(f"\tMOTION PRESET: {MOTION_PRESET}")
-    print(f"\tT_START: {T_START}")
-    print(f"\tT_STOP: {T_STOP}")
-    print(f"\tN_JOBS: {N_JOBS}")
+    # setup AIND logging before any other logging call
+    ecephys_session_folders = [
+        p for p in data_folder.iterdir() if "ecephys" in p.name.lower() or "behavior" in p.name.lower()
+    ]
+    ecephys_session_folder = None
+    aind_log_setup = False
+    if len(ecephys_session_folders) == 1:
+        ecephys_session_folder = ecephys_session_folders[0]
+        if HAVE_AIND_LOG_UTILS:
+            # look for subject.json and data_description.json files
+            subject_json = ecephys_session_folder / "subject.json"
+            subject_id = "undefined"
+            if subject_json.is_file():
+                subject_data = json.load(open(subject_json, "r"))
+                subject_id = subject_data["subject_id"]
+
+            data_description_json = ecephys_session_folder / "data_description.json"
+            session_name = "undefined"
+            if data_description_json.is_file():
+                data_description = json.load(open(data_description_json, "r"))
+                session_name = data_description["name"]
+
+            log.setup_logging(
+                "Opto Preprocess Ecephys",
+                subject_id=subject_id,
+                asset_name=session_name,
+            )
+            aind_log_setup = True
+
+    if not aind_log_setup:
+        logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(message)s")
+
+    logging.info(f"Running preprocessing with the following parameters:")
+    logging.info(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
+    logging.info(f"\tFILTER TYPE: {FILTER_TYPE}")
+    logging.info(f"\tREMOVE_OUT_CHANNELS: {REMOVE_OUT_CHANNELS}")
+    logging.info(f"\tREMOVE_BAD_CHANNELS: {REMOVE_BAD_CHANNELS}")
+    logging.info(f"\tMAX BAD CHANNEL FRACTION: {MAX_BAD_CHANNEL_FRACTION}")
+    logging.info(f"\tCOMPUTE_MOTION: {COMPUTE_MOTION}")
+    logging.info(f"\tAPPLY_MOTION: {APPLY_MOTION}")
+    logging.info(f"\tMOTION PRESET: {MOTION_PRESET}")
+    logging.info(f"\tT_START: {T_START}")
+    logging.info(f"\tT_STOP: {T_STOP}")
+    logging.info(f"\tN_JOBS: {N_JOBS}")
 
     if PARAMS_FILE is not None:
-        print(f"\nUsing custom parameter file: {PARAMS_FILE}")
+        logging.info(f"\nUsing custom parameter file: {PARAMS_FILE}")
         with open(PARAMS_FILE, "r") as f:
             processing_params = json.load(f)
     elif PARAMS_STR is not None:
@@ -203,7 +244,7 @@ if __name__ == "__main__":
 
     # load job files
     job_config_files = [p for p in data_folder.iterdir() if (p.suffix == ".json" or p.suffix == ".pickle" or p.suffix == ".pkl") and "job" in p.name]
-    print(f"Found {len(job_config_files)} configurations")
+    logging.info(f"Found {len(job_config_files)} configurations")
 
     # ephys raw folder
     ecephys_session = None
@@ -215,7 +256,7 @@ if __name__ == "__main__":
 
     if len(job_config_files) > 0:
         ####### PREPROCESSING #######
-        print("\n\nPREPROCESSING")
+        logging.info("\n\nPREPROCESSING")
         t_preprocessing_start_all = time.perf_counter()
         preprocessing_vizualization_data = {}
 
@@ -245,7 +286,7 @@ if __name__ == "__main__":
                     f"Make sure mapping is correct!"
                 )
             if skip_times:
-                print("Resetting recording timestamps")
+                logging.info("Resetting recording timestamps")
                 recording.reset_times()
 
             skip_processing = False
@@ -259,11 +300,11 @@ if __name__ == "__main__":
             motioncorrected_output_filename = f"motioncorrected_{recording_name}"
             binary_output_filename = f"binary_{recording_name}"
 
-            print(f"Preprocessing recording: {session_name} - {recording_name}")
+            logging.info(f"Preprocessing recording: {session_name} - {recording_name}")
 
             if (T_START is not None or T_STOP is not None):
                 if recording.get_num_segments() > 1:
-                    print(f"\tRecording has multiple segments. Ignoring T_START and T_STOP")
+                    logging.info(f"\tRecording has multiple segments. Ignoring T_START and T_STOP")
                 else:
                     if T_START is None:
                         T_START = 0
@@ -272,12 +313,12 @@ if __name__ == "__main__":
                     T_START = float(T_START)
                     T_STOP = float(T_STOP)
                     T_STOP = min(T_STOP, recording.get_duration())
-                    print(f"\tOriginal recording duration: {recording.get_duration()} -- Clipping to {T_START}-{T_STOP} s")
+                    logging.info(f"\tOriginal recording duration: {recording.get_duration()} -- Clipping to {T_START}-{T_STOP} s")
                     start_frame = int(T_START * recording.get_sampling_frequency())
                     end_frame = int(T_STOP * recording.get_sampling_frequency() + 1)
                     recording = recording.frame_slice(start_frame=start_frame, end_frame=end_frame)
 
-            print(f"\tDuration: {np.round(recording.get_total_duration(), 2)} s")
+            logging.info(f"\tDuration: {np.round(recording.get_total_duration(), 2)} s")
 
             preprocessing_vizualization_data[recording_name]["timeseries"] = dict()
             preprocessing_vizualization_data[recording_name]["timeseries"]["full"] = dict(
@@ -310,7 +351,7 @@ if __name__ == "__main__":
                 raise ValueError(f"Filter type {FILTER_TYPE} not recognized")
 
             if recording.get_total_duration() < preprocessing_params["min_preprocessing_duration"] and not debug:
-                print(f"\tRecording is too short ({recording.get_total_duration()}s). Skipping further processing")
+                logging.info(f"\tRecording is too short ({recording.get_total_duration()}s). Skipping further processing")
                 preprocessing_notes += (
                     f"\n- Recording is too short ({recording.get_total_duration()}s). Skipping further processing\n"
                 )
@@ -324,8 +365,8 @@ if __name__ == "__main__":
                 dead_channel_mask = channel_labels == "dead"
                 noise_channel_mask = channel_labels == "noise"
                 out_channel_mask = channel_labels == "out"
-                print(f"\tBad channel detection:")
-                print(
+                logging.info(f"\tBad channel detection:")
+                logging.info(
                     f"\t\t- dead channels - {np.sum(dead_channel_mask)}\n\t\t- noise channels - {np.sum(noise_channel_mask)}\n\t\t- out channels - {np.sum(out_channel_mask)}"
                 )
                 dead_channel_ids = recording_filt_full.channel_ids[dead_channel_mask]
@@ -337,17 +378,17 @@ if __name__ == "__main__":
                 skip_processing = False
                 max_bad_channel_fraction = preprocessing_params["max_bad_channel_fraction"]
                 if len(all_bad_channel_ids) >= int(max_bad_channel_fraction * recording.get_num_channels()):
-                    print(f"\tMore than {max_bad_channel_fraction * 100}% bad channels ({len(all_bad_channel_ids)}). ")
+                    logging.info(f"\tMore than {max_bad_channel_fraction * 100}% bad channels ({len(all_bad_channel_ids)}). ")
                     preprocessing_notes += f"\n- Found {len(all_bad_channel_ids)} bad channels."
                     if preprocessing_params["remove_bad_channels"]:
                         skip_processing = True
-                        print("\tSkipping further processing for this recording.")
+                        logging.info("\tSkipping further processing for this recording.")
                         preprocessing_notes += f" Skipping further processing for this recording.\n"
                     else:
                         preprocessing_notes += "\n"
                 if not skip_processing:
                     if preprocessing_params["remove_out_channels"]:
-                        print(f"\tRemoving {len(out_channel_ids)} out channels")
+                        logging.info(f"\tRemoving {len(out_channel_ids)} out channels")
                         recording_rm_out = recording_filt_full.remove_channels(out_channel_ids)
                         preprocessing_notes += f"\n- Removed {len(out_channel_ids)} outside of the brain."
                     else:
@@ -382,7 +423,7 @@ if __name__ == "__main__":
                         recording_processed = recording_hp_spatial
 
                     if preprocessing_params["remove_bad_channels"]:
-                        print(f"\tRemoving {len(bad_channel_ids)} channels after {denoising_strategy} preprocessing")
+                        logging.info(f"\tRemoving {len(bad_channel_ids)} channels after {denoising_strategy} preprocessing")
                         recording_processed = recording_processed.remove_channels(bad_channel_ids)
                         preprocessing_notes += f"\n- Removed {len(bad_channel_ids)} bad channels after preprocessing.\n"
 
@@ -393,7 +434,7 @@ if __name__ == "__main__":
 
                         if ecephys_session.is_dir():
                             # Move to its own capsule for flexibility???
-                            print(f"\tRemoving optical stimulation artifacts")
+                            logging.info(f"\tRemoving optical stimulation artifacts")
                             remove_artifact_params = preprocessing_params["remove_artifacts"]
 
                             # instantiate stimulation variables
@@ -417,10 +458,21 @@ if __name__ == "__main__":
                                     behavior_folder = behavior_folders[0]
                             if behavior_folder is not None:
                                 json_files = [p for p in behavior_folder.iterdir() if p.suffix == ".json"]
+                                behavior_json_file = None
                                 if len(json_files) == 1:
-                                    json_file = json_files[0]
-                                    with open(json_file) as f:
-                                        behavior_data = json.load(open(json_file))
+                                    behavior_json_file = json_file = json_files[0]
+                                elif len(json_files) > 1:
+                                    logging.info(f"Found {len(json_files)} JSON files in behavior folder. Determining behavior file by name")
+                                    # the JSON file should start with {subject_id}_{date}
+                                    if session_name != "undefined":
+                                        subject_date_str = "_".join(session_name.split("_")[1:-1])
+                                        for json_file in json_files:
+                                            if json_file.name.startswith(subject_date_str):
+                                                behavior_json_file = json_file
+                                                break
+                                if behavior_json_file is not None:
+                                    with open(behavior_json_file) as f:
+                                        behavior_data = json.load(f)
                                     laser_info = behavior_data.get("Opto_dialog", None)
                                     stimulation_trigger_times = behavior_data.get("B_OptogeneticsTimeHarp", None)
                                     if laser_info is not None and stimulation_trigger_times is not None:
@@ -430,15 +482,23 @@ if __name__ == "__main__":
                                             if "Laser_" in k and v != "NA" and "calibration" not in k
                                         ]
                                         if len(active_laser_ids) != 1:
-                                            print("\tFound more than one active laser. Not supported!")
+                                            logging.info("\tFound more than one active laser. Not supported!")
                                         else:
                                             active_laser_id = active_laser_ids[0]
                                             pulse_durations = behavior_data[f"TP_PulseDur_{active_laser_id}"]
                                             pulse_frequencies = behavior_data[f"TP_Frequency_{active_laser_id}"]
                                             train_durations = behavior_data[f"TP_Duration_{active_laser_id}"]
                                 else:
-                                    print("Found multiple event json files. Could not determine artifacts")
-                            else:
+                                    json_file_names = [f.name for f in json_files]
+                                    logging.info(f"Could not find behavior JSON file among: {json_file_names}")
+
+                            # if no stimulation events are found, look for NIDAQ + CSV
+                            if len(stimulation_trigger_times) == 0:
+                                logging.info(
+                                    "Couldn't find optogenetics stimulation in behavior JSON. "
+                                    "Looking for events using NIDAQ+csv file." 
+                                )
+                                
                                 import spikeinterface.extractors as se
 
                                 ecephys_clipped_folders = [p for p in ecephys_session.glob("**/ecephys_clipped")]
@@ -471,9 +531,9 @@ if __name__ == "__main__":
                                             evts_opto = evts[evts["label"] == labels[label_index]]
                                             stimulation_trigger_times = evts_opto["time"]
                                         else:
-                                            print("\tCould not find an event channel with the right number of events!")
+                                            logging.info("\tCould not find an event channel with the right number of events!")
                                     else:
-                                        print(f"Found {len(opto_csv_files)} opto CSV files. One CSV file is required.")
+                                        logging.info(f"Found {len(opto_csv_files)} opto CSV files. One CSV file is required.")
 
                         if len(stimulation_trigger_times) > 0:
                             if recording.get_num_segments() == 1:
@@ -507,14 +567,14 @@ if __name__ == "__main__":
                                     ms_before=remove_artifact_params["ms_before"],
                                     ms_after=remove_artifact_params["ms_after"],
                                 )
-                                print(f"\tFound {len(evt_triggers_sync)} optical stimulation artifacts")
+                                logging.info(f"\tFound {len(evt_triggers_sync)} optical stimulation artifacts")
                                 preprocessing_notes += (
                                     f"\n- Found {len(evt_triggers_sync)} optical stimulation artifacts.\n"
                                 )
                             else:
-                                print("\tArtifact removal not supported for multi-segment recordings.")
+                                logging.info("\tArtifact removal not supported for multi-segment recordings.")
                         else:
-                            print(f"\tFound no optical stimulation artifacts")
+                            logging.info(f"\tFound no optical stimulation artifacts")
                             preprocessing_notes += f"\n- Found no optical stimulation artifacts.\n"
 
                     # save to binary to speed up downstream processing
@@ -527,7 +587,7 @@ if __name__ == "__main__":
                         from spikeinterface.sortingcomponents.motion import interpolate_motion
 
                         preset = motion_params["preset"]
-                        print(f"\tComputing motion correction with preset: {preset}")
+                        logging.info(f"\tComputing motion correction with preset: {preset}")
 
                         detect_kwargs = motion_params.get("detect_kwargs", {})
                         select_kwargs = motion_params.get("select_kwargs", {})
@@ -590,11 +650,11 @@ if __name__ == "__main__":
                                 recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
 
                             if motion_params["apply"]:
-                                print(f"\tApplying motion correction")
+                                logging.info(f"\tApplying motion correction")
                                 recording_processed = recording_corrected
                                 recording_bin = recording_bin_corrected
                         except Exception as e:
-                            print(f"\tMotion correction failed:\n\t{e}")
+                            logging.info(f"\tMotion correction failed:\n\t{e}")
                             recording_corrected = None
                             recording_bin_corrected = None
 
@@ -678,4 +738,4 @@ if __name__ == "__main__":
         t_preprocessing_end_all = time.perf_counter()
         elapsed_time_preprocessing_all = np.round(t_preprocessing_end_all - t_preprocessing_start_all, 2)
 
-        print(f"PREPROCESSING time: {elapsed_time_preprocessing_all}s")
+        logging.info(f"PREPROCESSING time: {elapsed_time_preprocessing_all}s")
