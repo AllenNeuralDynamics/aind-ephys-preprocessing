@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 
 # SPIKEINTERFACE
 import spikeinterface as si
+import spikeinterface.extractors as se
 import spikeinterface.preprocessing as spre
 
 from spikeinterface.core.core_tools import check_json
@@ -444,96 +445,93 @@ if __name__ == "__main__":
                             num_pulses = None
                             inter_pulse_intervals = None
 
-                            # check if HARP system
-                            behavior_folder = None
-                            harp_folders = [p for p in ecephys_session.glob("**/raw.harp")]
-                            if len(harp_folders) == 1:
-                                harp_folder = harp_folders[0]
-                                behavior_folder = harp_folder.parent
-                            elif len(harp_folders) == 0:
-                                # this is for back-compatibility
-                                harp_folders = [p for p in ecephys_session.glob("**/HarpFolder")]
-                                behavior_folders = [p for p in ecephys_session.glob("**/TrainingFolder")]
-                                if len(behavior_folders) == 1:
-                                    behavior_folder = behavior_folders[0]
-                            if behavior_folder is not None:
-                                json_files = [p for p in behavior_folder.iterdir() if p.suffix == ".json"]
-                                behavior_json_file = None
-                                if len(json_files) == 1:
-                                    behavior_json_file = json_file = json_files[0]
-                                elif len(json_files) > 1:
-                                    logging.info(f"Found {len(json_files)} JSON files in behavior folder. Determining behavior file by name")
-                                    # the JSON file should start with {subject_id}_{date}
-                                    if session_name != "undefined":
-                                        subject_date_str = "_".join(session_name.split("_")[1:-1])
-                                        for json_file in json_files:
-                                            if json_file.name.startswith(subject_date_str):
-                                                behavior_json_file = json_file
-                                                break
-                                if behavior_json_file is not None:
-                                    with open(behavior_json_file) as f:
-                                        behavior_data = json.load(f)
-                                    laser_info = behavior_data.get("Opto_dialog", None)
-                                    stimulation_trigger_times = behavior_data.get("B_OptogeneticsTimeHarp", None)
-                                    if laser_info is not None and stimulation_trigger_times is not None:
-                                        active_laser_ids = [
-                                            k.split("_")[1]
-                                            for k, v in laser_info.items()
-                                            if "Laser_" in k and v != "NA" and "calibration" not in k
-                                        ]
-                                        if len(active_laser_ids) != 1:
-                                            logging.info("\tFound more than one active laser. Not supported!")
-                                        else:
-                                            active_laser_id = active_laser_ids[0]
-                                            pulse_durations = behavior_data[f"TP_PulseDur_{active_laser_id}"]
-                                            pulse_frequencies = behavior_data[f"TP_Frequency_{active_laser_id}"]
-                                            train_durations = behavior_data[f"TP_Duration_{active_laser_id}"]
+                            ecephys_clipped_folders = [p for p in ecephys_session.glob("**/ecephys_clipped")]
+                            if len(ecephys_clipped_folders) == 1:
+                                ecephys_folder = ecephys_clipped_folders[0]
+
+                                # load CSV events file
+                                opto_csv_files = [
+                                    p
+                                    for p in ecephys_folder.iterdir()
+                                    if p.name.endswith("csv") and "opto" in p.name
+                                ]
+                                if len(opto_csv_files) == 1:
+                                    opto_csv_file = opto_csv_files[0]
+                                    opto_df = pd.read_csv(opto_csv_file)
+
+                                    # durations are in ms, we need s
+                                    pulse_durations = opto_df["duration"] / 1000
+                                    num_pulses = opto_df["num_pulses"]
+                                    inter_pulse_intervals = opto_df["pulse_interval"] / 1000 + pulse_durations
+
+                                    # read OE events
+                                    events = se.read_openephys_event(ecephys_folder, block_index=0)
+                                    evts = events.get_events(channel_id="PXIe-6341Digital Input Line")
+
+                                    labels, counts = np.unique(evts["label"], return_counts=True)
+                                    (label_index,) = np.where(counts == len(opto_df))
+
+                                    if len(label_index) > 0:
+                                        evts_opto = evts[evts["label"] == labels[label_index]]
+                                        stimulation_trigger_times = evts_opto["time"]
+                                    else:
+                                        logging.info("\tCould not find an event channel with the right number of events!")
                                 else:
-                                    json_file_names = [f.name for f in json_files]
-                                    logging.info(f"Could not find behavior JSON file among: {json_file_names}")
+                                    logging.info(f"Found {len(opto_csv_files)} opto CSV files. One CSV file is required.")
 
                             # if no stimulation events are found, look for NIDAQ + CSV
                             if len(stimulation_trigger_times) == 0:
                                 logging.info(
-                                    "Couldn't find optogenetics stimulation in behavior JSON. "
-                                    "Looking for events using NIDAQ+csv file." 
+                                    "Couldn't find optogenetics stimulation in behavior NIDAQ. "
+                                    "Looking for events using HRAP behavior file." 
                                 )
-                                
-                                import spikeinterface.extractors as se
-
-                                ecephys_clipped_folders = [p for p in ecephys_session.glob("**/ecephys_clipped")]
-                                if len(ecephys_clipped_folders) == 1:
-                                    ecephys_folder = ecephys_clipped_folders[0]
-
-                                    # load CSV events file
-                                    opto_csv_files = [
-                                        p
-                                        for p in ecephys_folder.iterdir()
-                                        if p.name.endswith("csv") and "opto" in p.name
-                                    ]
-                                    if len(opto_csv_files) == 1:
-                                        opto_csv_file = opto_csv_files[0]
-                                        opto_df = pd.read_csv(opto_csv_file)
-
-                                        # durations are in ms, we need s
-                                        pulse_durations = opto_df["duration"] / 1000
-                                        num_pulses = opto_df["num_pulses"]
-                                        inter_pulse_intervals = opto_df["pulse_interval"] / 1000 + pulse_durations
-
-                                        # read OE events
-                                        events = se.read_openephys_event(ecephys_folder, block_index=0)
-                                        evts = events.get_events(channel_id="PXIe-6341Digital Input Line")
-
-                                        labels, counts = np.unique(evts["label"], return_counts=True)
-                                        (label_index,) = np.where(counts == len(opto_df))
-
-                                        if len(label_index) > 0:
-                                            evts_opto = evts[evts["label"] == labels[label_index]]
-                                            stimulation_trigger_times = evts_opto["time"]
-                                        else:
-                                            logging.info("\tCould not find an event channel with the right number of events!")
+                                # check if HARP system
+                                behavior_folder = None
+                                harp_folders = [p for p in ecephys_session.glob("**/raw.harp")]
+                                if len(harp_folders) == 1:
+                                    harp_folder = harp_folders[0]
+                                    behavior_folder = harp_folder.parent
+                                elif len(harp_folders) == 0:
+                                    # this is for back-compatibility
+                                    harp_folders = [p for p in ecephys_session.glob("**/HarpFolder")]
+                                    behavior_folders = [p for p in ecephys_session.glob("**/TrainingFolder")]
+                                    if len(behavior_folders) == 1:
+                                        behavior_folder = behavior_folders[0]
+                                if behavior_folder is not None:
+                                    json_files = [p for p in behavior_folder.iterdir() if p.suffix == ".json"]
+                                    behavior_json_file = None
+                                    if len(json_files) == 1:
+                                        behavior_json_file = json_file = json_files[0]
+                                    elif len(json_files) > 1:
+                                        logging.info(f"Found {len(json_files)} JSON files in behavior folder. Determining behavior file by name")
+                                        # the JSON file should start with {subject_id}_{date}
+                                        if session_name != "undefined":
+                                            subject_date_str = "_".join(session_name.split("_")[1:-1])
+                                            for json_file in json_files:
+                                                if json_file.name.startswith(subject_date_str):
+                                                    behavior_json_file = json_file
+                                                    break
+                                    if behavior_json_file is not None:
+                                        with open(behavior_json_file) as f:
+                                            behavior_data = json.load(f)
+                                        laser_info = behavior_data.get("Opto_dialog", None)
+                                        stimulation_trigger_times = behavior_data.get("B_OptogeneticsTimeHarp", None)
+                                        if laser_info is not None and stimulation_trigger_times is not None:
+                                            active_laser_ids = [
+                                                k.split("_")[1]
+                                                for k, v in laser_info.items()
+                                                if "Laser_" in k and v != "NA" and "calibration" not in k
+                                            ]
+                                            if len(active_laser_ids) != 1:
+                                                logging.info("\tFound more than one active laser. Not supported!")
+                                            else:
+                                                active_laser_id = active_laser_ids[0]
+                                                pulse_durations = behavior_data[f"TP_PulseDur_{active_laser_id}"]
+                                                pulse_frequencies = behavior_data[f"TP_Frequency_{active_laser_id}"]
+                                                train_durations = behavior_data[f"TP_Duration_{active_laser_id}"]
                                     else:
-                                        logging.info(f"Found {len(opto_csv_files)} opto CSV files. One CSV file is required.")
+                                        json_file_names = [f.name for f in json_files]
+                                        logging.info(f"Could not find behavior JSON file among: {json_file_names}")
 
                         if len(stimulation_trigger_times) > 0:
                             if recording.get_num_segments() == 1:
