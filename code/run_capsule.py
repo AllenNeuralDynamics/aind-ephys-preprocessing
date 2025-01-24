@@ -11,13 +11,13 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import argparse
 import sys
-import logging
+import shutil
 import numpy as np
 from pathlib import Path
 import json
 import pickle
 import time
-import pandas as pd
+import logging
 from datetime import datetime, timedelta
 
 # SPIKEINTERFACE
@@ -120,6 +120,13 @@ t_stop_help = (
 t_stop_group.add_argument("static_t_stop", nargs="?", default=None, help=t_stop_help)
 t_stop_group.add_argument("--t-stop", default=None, help=t_stop_help)
 
+min_duration_group = parser.add_mutually_exclusive_group()
+min_duration_help = (
+    "Minimum duration of a recording to be preprocessed."
+)
+min_duration_group.add_argument("static_min_duration_for_preprocessing", nargs="?", default=None, help=min_duration_help)
+min_duration_group.add_argument("--min-duration-for-preprocessing", default=None, help=min_duration_help)
+
 n_jobs_group = parser.add_mutually_exclusive_group()
 n_jobs_help = (
     "Number of jobs to use for parallel processing. Default is -1 (all available cores). "
@@ -161,6 +168,7 @@ if __name__ == "__main__":
     T_STOP = args.static_t_stop or args.t_stop
     if isinstance(T_STOP, str) and T_STOP == "":
         T_STOP = None
+    MIN_DURATION_FOR_PREPROCESSING = args.static_min_duration_for_preprocessing or args.min_duration_for_preprocessing
 
     N_JOBS = args.static_n_jobs or args.n_jobs
     N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
@@ -214,6 +222,7 @@ if __name__ == "__main__":
     logging.info(f"\tMOTION PRESET: {MOTION_PRESET}")
     logging.info(f"\tT_START: {T_START}")
     logging.info(f"\tT_STOP: {T_STOP}")
+    logging.info(f"\tMIN_DURATION FOR PREPROCESSING: {MIN_DURATION_FOR_PREPROCESSING}")
     logging.info(f"\tN_JOBS: {N_JOBS}")
 
     if PARAMS_FILE is not None:
@@ -242,18 +251,13 @@ if __name__ == "__main__":
     motion_params["apply"] = APPLY_MOTION
     if MOTION_PRESET is not None:
         motion_params["preset"] = MOTION_PRESET
+    if MIN_DURATION_FOR_PREPROCESSING is None:
+        MIN_DURATION_FOR_PREPROCESSING = preprocessing_params["min_preprocessing_duration"]
+    MIN_DURATION_FOR_PREPROCESSING = float(MIN_DURATION_FOR_PREPROCESSING)
 
     # load job files
     job_config_files = [p for p in data_folder.iterdir() if (p.suffix == ".json" or p.suffix == ".pickle" or p.suffix == ".pkl") and "job" in p.name]
     logging.info(f"Found {len(job_config_files)} configurations")
-
-    # ephys raw folder
-    ecephys_session = None
-    ecephys_sessions = [
-        p for p in data_folder.iterdir() if "ecephys" in p.name.lower() or "behavior" in p.name.lower()
-    ]
-    if len(ecephys_sessions) == 1:
-        ecephys_session = ecephys_sessions[0]
 
     if len(job_config_files) > 0:
         ####### PREPROCESSING #######
@@ -351,7 +355,7 @@ if __name__ == "__main__":
             else:
                 raise ValueError(f"Filter type {FILTER_TYPE} not recognized")
 
-            if recording.get_total_duration() < preprocessing_params["min_preprocessing_duration"] and not debug:
+            if recording.get_total_duration() < MIN_DURATION_FOR_PREPROCESSING and not debug:
                 logging.info(f"\tRecording is too short ({recording.get_total_duration()}s). Skipping further processing")
                 preprocessing_notes += (
                     f"\n- Recording is too short ({recording.get_total_duration()}s). Skipping further processing\n"
@@ -430,10 +434,9 @@ if __name__ == "__main__":
 
                     # remove artifacts
                     if preprocessing_params["apply_remove_artifacts"]:
-                        # the ecephys folder is mapped as "ecephys_session"
                         stimulation_trigger_times = []
 
-                        if ecephys_session.is_dir():
+                        if ecephys_session_folder.is_dir():
                             # Move to its own capsule for flexibility???
                             logging.info(f"\tRemoving optical stimulation artifacts")
                             remove_artifact_params = preprocessing_params["remove_artifacts"]
@@ -445,7 +448,7 @@ if __name__ == "__main__":
                             num_pulses = None
                             inter_pulse_intervals = None
 
-                            ecephys_clipped_folders = [p for p in ecephys_session.glob("**/ecephys_clipped")]
+                            ecephys_clipped_folders = [p for p in ecephys_session_folder.glob("**/ecephys_clipped")]
                             if len(ecephys_clipped_folders) == 1:
                                 ecephys_folder = ecephys_clipped_folders[0]
 
@@ -487,14 +490,14 @@ if __name__ == "__main__":
                                 )
                                 # check if HARP system
                                 behavior_folder = None
-                                harp_folders = [p for p in ecephys_session.glob("**/raw.harp")]
+                                harp_folders = [p for p in ecephys_session_folder.glob("**/raw.harp")]
                                 if len(harp_folders) == 1:
                                     harp_folder = harp_folders[0]
                                     behavior_folder = harp_folder.parent
                                 elif len(harp_folders) == 0:
                                     # this is for back-compatibility
-                                    harp_folders = [p for p in ecephys_session.glob("**/HarpFolder")]
-                                    behavior_folders = [p for p in ecephys_session.glob("**/TrainingFolder")]
+                                    harp_folders = [p for p in ecephys_session_folder.glob("**/HarpFolder")]
+                                    behavior_folders = [p for p in ecephys_session_folder.glob("**/TrainingFolder")]
                                     if len(behavior_folders) == 1:
                                         behavior_folder = behavior_folders[0]
                                 if behavior_folder is not None:
@@ -652,7 +655,7 @@ if __name__ == "__main__":
                                 recording_processed = recording_corrected
                                 recording_bin = recording_bin_corrected
                         except Exception as e:
-                            logging.info(f"\tMotion correction failed:\n\t{e}")
+                            logging.info(f"\tMotion correction failed!")
                             recording_corrected = None
                             recording_bin_corrected = None
 
@@ -732,6 +735,13 @@ if __name__ == "__main__":
             )
             with open(preprocessing_output_process_json, "w") as f:
                 f.write(preprocessing_process.model_dump_json(indent=3))
+
+            # copy data_description and subject json
+            if ecephys_session_folder is not None:
+                metadata_json_files = [p for p in ecephys_session_folder.iterdir() if p.suffix == ".json"]
+                for metadata_file in metadata_json_files:
+                    if "data_description" in metadata_file.name or "subject" in metadata_file.name:
+                        shutil.copy(metadata_file, results_folder / f"preprocessing_{recording_name}_{metadata_file.name}")
 
         t_preprocessing_end_all = time.perf_counter()
         elapsed_time_preprocessing_all = np.round(t_preprocessing_end_all - t_preprocessing_start_all, 2)
