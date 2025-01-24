@@ -234,10 +234,6 @@ if __name__ == "__main__":
         with open("params.json", "r") as f:
             processing_params = json.load(f)
 
-    if MIN_DURATION_FOR_PREPROCESSING is None:
-        MIN_DURATION_FOR_PREPROCESSING = preprocessing_params["min_preprocessing_duration"]
-    MIN_DURATION_FOR_PREPROCESSING = float(MIN_DURATION_FOR_PREPROCESSING)
-
     data_process_prefix = "data_process_preprocessing"
 
     job_kwargs = processing_params["job_kwargs"]
@@ -254,6 +250,9 @@ if __name__ == "__main__":
     motion_params["apply"] = APPLY_MOTION
     if MOTION_PRESET is not None:
         motion_params["preset"] = MOTION_PRESET
+    if MIN_DURATION_FOR_PREPROCESSING is None:
+        MIN_DURATION_FOR_PREPROCESSING = preprocessing_params["min_preprocessing_duration"]
+    MIN_DURATION_FOR_PREPROCESSING = float(MIN_DURATION_FOR_PREPROCESSING)
 
     # load job files
     job_config_files = [p for p in data_folder.iterdir() if (p.suffix == ".json" or p.suffix == ".pickle" or p.suffix == ".pkl") and "job" in p.name]
