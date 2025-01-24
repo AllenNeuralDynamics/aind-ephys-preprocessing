@@ -236,6 +236,7 @@ if __name__ == "__main__":
 
     if MIN_DURATION_FOR_PREPROCESSING is None:
         MIN_DURATION_FOR_PREPROCESSING = preprocessing_params["min_preprocessing_duration"]
+    MIN_DURATION_FOR_PREPROCESSING = float(MIN_DURATION_FOR_PREPROCESSING)
 
     data_process_prefix = "data_process_preprocessing"
 
