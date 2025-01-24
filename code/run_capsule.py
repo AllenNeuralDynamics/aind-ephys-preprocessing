@@ -119,6 +119,13 @@ t_stop_help = (
 t_stop_group.add_argument("static_t_stop", nargs="?", default=None, help=t_stop_help)
 t_stop_group.add_argument("--t-stop", default=None, help=t_stop_help)
 
+min_duration_group = parser.add_mutually_exclusive_group()
+min_duration_help = (
+    "Minimum duration of a recording to be preprocessed."
+)
+min_duration_group.add_argument("static_min_duration_for_preprocessing", nargs="?", default=None, help=min_duration_help)
+min_duration_group.add_argument("--min-duration-for-preprocessing", default=None, help=min_duration_help)
+
 n_jobs_group = parser.add_mutually_exclusive_group()
 n_jobs_help = (
     "Number of jobs to use for parallel processing. Default is -1 (all available cores). "
@@ -160,6 +167,7 @@ if __name__ == "__main__":
     T_STOP = args.static_t_stop or args.t_stop
     if isinstance(T_STOP, str) and T_STOP == "":
         T_STOP = None
+    MIN_DURATION_FOR_PREPROCESSING = args.static_min_duration_for_preprocessing or args.min_duration_for_preprocessing
 
     N_JOBS = args.static_n_jobs or args.n_jobs
     N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
@@ -213,6 +221,7 @@ if __name__ == "__main__":
     logging.info(f"\tMOTION PRESET: {MOTION_PRESET}")
     logging.info(f"\tT_START: {T_START}")
     logging.info(f"\tT_STOP: {T_STOP}")
+    logging.info(f"\tMIN_DURATION FOR PREPROCESSING: {MIN_DURATION_FOR_PREPROCESSING}")
     logging.info(f"\tN_JOBS: {N_JOBS}")
 
     if PARAMS_FILE is not None:
@@ -224,6 +233,9 @@ if __name__ == "__main__":
     else:
         with open("params.json", "r") as f:
             processing_params = json.load(f)
+
+    if MIN_DURATION_FOR_PREPROCESSING is None:
+        MIN_DURATION_FOR_PREPROCESSING = preprocessing_params["min_preprocessing_duration"]
 
     data_process_prefix = "data_process_preprocessing"
 
@@ -342,7 +354,7 @@ if __name__ == "__main__":
             else:
                 raise ValueError(f"Filter type {FILTER_TYPE} not recognized")
 
-            if recording.get_total_duration() < preprocessing_params["min_preprocessing_duration"] and not debug:
+            if recording.get_total_duration() < MIN_DURATION_FOR_PREPROCESSING and not debug:
                 logging.info(f"\tRecording is too short ({recording.get_total_duration()}s). Skipping further processing")
                 preprocessing_notes += (
                     f"\n- Recording is too short ({recording.get_total_duration()}s). Skipping further processing\n"
