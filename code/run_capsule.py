@@ -283,7 +283,7 @@ if __name__ == "__main__":
             debug = job_config.get("debug", False)
 
             try:
-                recording = si.load_extractor(recording_dict, base_folder=data_folder)
+                recording = si.loadr(recording_dict, base_folder=data_folder)
             except:
                 raise RuntimeError(
                     f"Could not find load recording {recording_name} from dict. "
