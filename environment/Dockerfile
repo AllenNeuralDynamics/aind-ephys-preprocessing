@@ -12,7 +12,7 @@ ARG GIT_ACCESS_TOKEN
 COPY git-askpass /
 
 RUN pip install -U --no-cache-dir \
-    aind-data-schema==1.0.0 \
+    aind-data-schema==1.3.0 \
     aind-log-utils==0.2.3 \
     spikeinterface[full]==0.101.2 \
     torch==2.2.0 \
