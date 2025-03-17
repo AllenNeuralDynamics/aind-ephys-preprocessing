@@ -152,6 +152,8 @@ def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
 if __name__ == "__main__":
     args = parser.parse_args()
 
+    print(args)
+
     DENOISING_STRATEGY = args.denoising or args.static_denoising
     FILTER_TYPE = args.filter_type or args.static_filter_type
     REMOVE_OUT_CHANNELS = False if args.no_remove_out_channels else args.static_remove_out_channels == "true"
