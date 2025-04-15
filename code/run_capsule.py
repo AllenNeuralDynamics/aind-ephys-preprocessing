@@ -262,7 +262,7 @@ if __name__ == "__main__":
         ####### PREPROCESSING #######
         logging.info("\n\nPREPROCESSING")
         t_preprocessing_start_all = time.perf_counter()
-        preprocessing_vizualization_data = {}
+        preprocessing_visualization_data = {}
 
         for job_config_file in job_config_files:
             datetime_start_preproc = datetime.now()
@@ -294,9 +294,9 @@ if __name__ == "__main__":
                 recording.reset_times()
 
             skip_processing = False
-            vizualization_file_is_json_serializable = True
+            visualization_file_is_json_serializable = True
 
-            preprocessing_vizualization_data[recording_name] = {}
+            preprocessing_visualization_data[recording_name] = {}
             preprocessing_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
             preprocessing_output_folder = results_folder / f"preprocessed_{recording_name}"
             preprocessingviz_output_filename = f"preprocessedviz_{recording_name}"
@@ -324,16 +324,16 @@ if __name__ == "__main__":
 
             logging.info(f"\tDuration: {np.round(recording.get_total_duration(), 2)} s")
 
-            preprocessing_vizualization_data[recording_name]["timeseries"] = dict()
-            preprocessing_vizualization_data[recording_name]["timeseries"]["full"] = dict(
+            preprocessing_visualization_data[recording_name]["timeseries"] = dict()
+            preprocessing_visualization_data[recording_name]["timeseries"]["full"] = dict(
                 raw=recording.to_dict(relative_to=data_folder, recursive=True)
             )
             if not recording.check_serializability("json"):
-                vizualization_file_is_json_serializable = False
+                visualization_file_is_json_serializable = False
             # maybe a recording is from a different source and it doesn't need to be phase shifted
             if "inter_sample_shift" in recording.get_property_keys():
                 recording_ps_full = spre.phase_shift(recording, **preprocessing_params["phase_shift"])
-                preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
+                preprocessing_visualization_data[recording_name]["timeseries"]["full"].update(
                     dict(phase_shift=recording_ps_full.to_dict(relative_to=data_folder, recursive=True))
                 )
             else:
@@ -341,13 +341,13 @@ if __name__ == "__main__":
 
             if FILTER_TYPE == "highpass":
                 recording_filt_full = spre.highpass_filter(recording_ps_full, **preprocessing_params["highpass_filter"])
-                preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
+                preprocessing_visualization_data[recording_name]["timeseries"]["full"].update(
                     dict(highpass=recording_filt_full.to_dict(relative_to=data_folder, recursive=True))
                 )
                 preprocessing_params["filter_type"] = "highpass"
             elif FILTER_TYPE == "bandpass":
                 recording_filt_full = spre.bandpass_filter(recording_ps_full, **preprocessing_params["bandpass_filter"])
-                preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
+                preprocessing_visualization_data[recording_name]["timeseries"]["full"].update(
                     dict(bandpass=recording_filt_full.to_dict(relative_to=data_folder, recursive=True))
                 )
                 preprocessing_params["filter_type"] = "bandpass"
@@ -412,12 +412,12 @@ if __name__ == "__main__":
                         )
                     except:
                         recording_hp_spatial = None
-                    preprocessing_vizualization_data[recording_name]["timeseries"]["proc"] = dict(
+                    preprocessing_visualization_data[recording_name]["timeseries"]["proc"] = dict(
                         highpass=recording_rm_out.to_dict(relative_to=data_folder, recursive=True),
                         cmr=recording_processed_cmr.to_dict(relative_to=data_folder, recursive=True),
                     )
                     if recording_hp_spatial is not None:
-                        preprocessing_vizualization_data[recording_name]["timeseries"]["proc"].update(
+                        preprocessing_visualization_data[recording_name]["timeseries"]["proc"].update(
                             dict(highpass_spatial=recording_hp_spatial.to_dict(relative_to=data_folder, recursive=True))
                         )
 
@@ -543,7 +543,7 @@ if __name__ == "__main__":
 
             if skip_processing:
                 # in this case, processed timeseries will not be visualized
-                preprocessing_vizualization_data[recording_name]["timeseries"]["proc"] = None
+                preprocessing_visualization_data[recording_name]["timeseries"]["proc"] = None
                 recording_drift = recording_filt_full
                 drift_relative_folder = data_folder
                 # make a dummy file if too many bad channels to skip downstream processing
@@ -552,17 +552,17 @@ if __name__ == "__main__":
                 error_file.write_text("Too many bad channels")
 
             # store recording for drift visualization
-            preprocessing_vizualization_data[recording_name]["drift"] = dict(
+            preprocessing_visualization_data[recording_name]["drift"] = dict(
                 recording=recording_drift.to_dict(relative_to=drift_relative_folder, recursive=True)
             )
 
-            if vizualization_file_is_json_serializable:            
+            if visualization_file_is_json_serializable:            
                 with open(results_folder / f"{preprocessingviz_output_filename}.json", "w") as f:
-                    json.dump(check_json(preprocessing_vizualization_data), f, indent=4)
+                    json.dump(check_json(preprocessing_visualization_data), f, indent=4)
             else:
                 # then dump to pickle
                 with open(results_folder / f"{preprocessingviz_output_filename}.pkl", "wb") as f:
-                    pickle.dump(preprocessing_vizualization_data, f)
+                    pickle.dump(preprocessing_visualization_data, f)
 
             t_preprocessing_end = time.perf_counter()
             elapsed_time_preprocessing = np.round(t_preprocessing_end - t_preprocessing_start, 2)
