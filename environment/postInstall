@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
-# install spikeinterface
-pip install -U --no-cache-dir spikeinterface[full]==0.99.0
+git clone https://github.com/SpikeInterface/spikeinterface.git
+cd spikeinterface
+git checkout ecaf9931a33fbb316939a61604b342a1fdb0eca6
+pip install .[full]
+cd ..
