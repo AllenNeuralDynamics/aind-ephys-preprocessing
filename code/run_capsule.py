@@ -10,22 +10,31 @@ import os
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import argparse
+import sys
+import shutil
 import numpy as np
 from pathlib import Path
 import json
 import pickle
 import time
+import logging
 from datetime import datetime, timedelta
 
 # SPIKEINTERFACE
 import spikeinterface as si
-import spikeinterface.extractors as se
 import spikeinterface.preprocessing as spre
 
 from spikeinterface.core.core_tools import check_json
 
 # AIND
 from aind_data_schema.core.processing import DataProcess
+
+try:
+    from aind_log_utils import log
+
+    HAVE_AIND_LOG_UTILS = True
+except ImportError:
+    HAVE_AIND_LOG_UTILS = False
 
 URL = "https://github.com/AllenNeuralDynamics/aind-ephys-preprocessing"
 VERSION = "1.0"
@@ -35,15 +44,10 @@ data_folder = Path("../data/")
 scratch_folder = Path("../scratch/")
 results_folder = Path("../results/")
 
+motion_presets = spre.get_motion_presets()
 
 # define argument parser
 parser = argparse.ArgumentParser(description="Preprocess AIND Neurpixels data")
-
-debug_group = parser.add_mutually_exclusive_group()
-debug_help = "Whether to run in DEBUG mode"
-debug_group.add_argument("--debug", action="store_true", help=debug_help)
-debug_group.add_argument("static_debug", nargs="?", default="false", help=debug_help)
-
 
 # positional arguments
 denoising_group = parser.add_mutually_exclusive_group()
@@ -88,11 +92,11 @@ motion_correction_group.add_argument("static_motion", nargs="?", default="comput
 
 motion_preset_group = parser.add_mutually_exclusive_group()
 motion_preset_help = (
-    "What motion preset to use. Can be 'nonrigid_accurate', 'kilosort_like', or 'nonrigid_fast_and_accurate'"
+    f"What motion preset to use. Supported presets are: {', '.join(motion_presets)}."
 )
 motion_preset_group.add_argument(
     "--motion-preset",
-    choices=["nonrigid_accurate", "kilosort_like", "nonrigid_fast_and_accurate"],
+    choices=motion_presets,
     help=motion_preset_help,
 )
 motion_preset_group.add_argument("static_motion_preset", nargs="?", default=None, help=motion_preset_help)
@@ -115,12 +119,12 @@ t_stop_help = (
 t_stop_group.add_argument("static_t_stop", nargs="?", default=None, help=t_stop_help)
 t_stop_group.add_argument("--t-stop", default=None, help=t_stop_help)
 
-debug_duration_group = parser.add_mutually_exclusive_group()
-debug_duration_help = (
-    "Duration of clipped recording in debug mode. Default is 30 seconds. Only used if debug is enabled"
+min_duration_group = parser.add_mutually_exclusive_group()
+min_duration_help = (
+    "Minimum duration of a recording to be preprocessed."
 )
-debug_duration_group.add_argument("--debug-duration", default=30, help=debug_duration_help)
-debug_duration_group.add_argument("static_debug_duration", nargs="?", default=None, help=debug_duration_help)
+min_duration_group.add_argument("static_min_duration_for_preprocessing", nargs="?", default=None, help=min_duration_help)
+min_duration_group.add_argument("--min-duration-for-preprocessing", default=None, help=min_duration_help)
 
 n_jobs_group = parser.add_mutually_exclusive_group()
 n_jobs_help = (
@@ -148,7 +152,6 @@ def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
 if __name__ == "__main__":
     args = parser.parse_args()
 
-    DEBUG = args.debug or args.static_debug == "true"
     DENOISING_STRATEGY = args.denoising or args.static_denoising
     FILTER_TYPE = args.filter_type or args.static_filter_type
     REMOVE_OUT_CHANNELS = False if args.no_remove_out_channels else args.static_remove_out_channels == "true"
@@ -164,7 +167,7 @@ if __name__ == "__main__":
     T_STOP = args.static_t_stop or args.t_stop
     if isinstance(T_STOP, str) and T_STOP == "":
         T_STOP = None
-    DEBUG_DURATION = float(args.static_debug_duration or args.debug_duration)
+    MIN_DURATION_FOR_PREPROCESSING = args.static_min_duration_for_preprocessing or args.min_duration_for_preprocessing
 
     N_JOBS = args.static_n_jobs or args.n_jobs
     N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
@@ -175,24 +178,54 @@ if __name__ == "__main__":
     N_JOBS_CO = os.getenv("CO_CPUS")
     N_JOBS = int(N_JOBS_CO) if N_JOBS_CO is not None else N_JOBS
 
-    print(f"Running preprocessing with the following parameters:")
-    print(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
-    print(f"\tFILTER TYPE: {FILTER_TYPE}")
-    print(f"\tREMOVE_OUT_CHANNELS: {REMOVE_OUT_CHANNELS}")
-    print(f"\tREMOVE_BAD_CHANNELS: {REMOVE_BAD_CHANNELS}")
-    print(f"\tMAX BAD CHANNEL FRACTION: {MAX_BAD_CHANNEL_FRACTION}")
-    print(f"\tCOMPUTE_MOTION: {COMPUTE_MOTION}")
-    print(f"\tAPPLY_MOTION: {APPLY_MOTION}")
-    print(f"\tMOTION PRESET: {MOTION_PRESET}")
-    print(f"\tT_START: {T_START}")
-    print(f"\tT_STOP: {T_STOP}")
-    print(f"\tN_JOBS: {N_JOBS}")
+    # setup AIND logging before any other logging call
+    ecephys_session_folders = [
+        p for p in data_folder.iterdir() if "ecephys" in p.name.lower() or "behavior" in p.name.lower()
+    ]
+    ecephys_session_folder = None
+    aind_log_setup = False
+    if len(ecephys_session_folders) == 1:
+        ecephys_session_folder = ecephys_session_folders[0]
+        if HAVE_AIND_LOG_UTILS:
+            # look for subject.json and data_description.json files
+            subject_json = ecephys_session_folder / "subject.json"
+            subject_id = "undefined"
+            if subject_json.is_file():
+                subject_data = json.load(open(subject_json, "r"))
+                subject_id = subject_data["subject_id"]
 
-    if DEBUG:
-        print(f"\nDEBUG ENABLED - Only running with {DEBUG_DURATION} seconds\n")
+            data_description_json = ecephys_session_folder / "data_description.json"
+            session_name = "undefined"
+            if data_description_json.is_file():
+                data_description = json.load(open(data_description_json, "r"))
+                session_name = data_description["name"]
+
+            log.setup_logging(
+                "Preprocess Ecephys",
+                subject_id=subject_id,
+                asset_name=session_name,
+            )
+            aind_log_setup = True
+
+    if not aind_log_setup:
+        logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(message)s")
+
+    logging.info(f"Running preprocessing with the following parameters:")
+    logging.info(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
+    logging.info(f"\tFILTER TYPE: {FILTER_TYPE}")
+    logging.info(f"\tREMOVE_OUT_CHANNELS: {REMOVE_OUT_CHANNELS}")
+    logging.info(f"\tREMOVE_BAD_CHANNELS: {REMOVE_BAD_CHANNELS}")
+    logging.info(f"\tMAX BAD CHANNEL FRACTION: {MAX_BAD_CHANNEL_FRACTION}")
+    logging.info(f"\tCOMPUTE_MOTION: {COMPUTE_MOTION}")
+    logging.info(f"\tAPPLY_MOTION: {APPLY_MOTION}")
+    logging.info(f"\tMOTION PRESET: {MOTION_PRESET}")
+    logging.info(f"\tT_START: {T_START}")
+    logging.info(f"\tT_STOP: {T_STOP}")
+    logging.info(f"\tMIN_DURATION FOR PREPROCESSING: {MIN_DURATION_FOR_PREPROCESSING}")
+    logging.info(f"\tN_JOBS: {N_JOBS}")
 
     if PARAMS_FILE is not None:
-        print(f"\nUsing custom parameter file: {PARAMS_FILE}")
+        logging.info(f"\nUsing custom parameter file: {PARAMS_FILE}")
         with open(PARAMS_FILE, "r") as f:
             processing_params = json.load(f)
     elif PARAMS_STR is not None:
@@ -217,16 +250,19 @@ if __name__ == "__main__":
     motion_params["apply"] = APPLY_MOTION
     if MOTION_PRESET is not None:
         motion_params["preset"] = MOTION_PRESET
+    if MIN_DURATION_FOR_PREPROCESSING is None:
+        MIN_DURATION_FOR_PREPROCESSING = preprocessing_params["min_preprocessing_duration"]
+    MIN_DURATION_FOR_PREPROCESSING = float(MIN_DURATION_FOR_PREPROCESSING)
 
     # load job files
     job_config_files = [p for p in data_folder.iterdir() if (p.suffix == ".json" or p.suffix == ".pickle" or p.suffix == ".pkl") and "job" in p.name]
-    print(f"Found {len(job_config_files)} configurations")
+    logging.info(f"Found {len(job_config_files)} configurations")
 
     if len(job_config_files) > 0:
         ####### PREPROCESSING #######
-        print("\n\nPREPROCESSING")
+        logging.info("\n\nPREPROCESSING")
         t_preprocessing_start_all = time.perf_counter()
-        preprocessing_vizualization_data = {}
+        preprocessing_visualization_data = {}
 
         for job_config_file in job_config_files:
             datetime_start_preproc = datetime.now()
@@ -244,22 +280,23 @@ if __name__ == "__main__":
             recording_name = job_config["recording_name"]
             recording_dict = job_config["recording_dict"]
             skip_times = job_config.get("skip_times", False)
+            debug = job_config.get("debug", False)
 
             try:
-                recording = si.load_extractor(recording_dict, base_folder=data_folder)
+                recording = si.load(recording_dict, base_folder=data_folder)
             except:
                 raise RuntimeError(
                     f"Could not find load recording {recording_name} from dict. "
                     f"Make sure mapping is correct!"
                 )
             if skip_times:
-                print("Resetting recording timestamps")
+                logging.info("Resetting recording timestamps")
                 recording.reset_times()
 
             skip_processing = False
-            vizualization_file_is_json_serializable = True
+            visualization_file_is_json_serializable = True
 
-            preprocessing_vizualization_data[recording_name] = {}
+            preprocessing_visualization_data[recording_name] = {}
             preprocessing_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
             preprocessing_output_folder = results_folder / f"preprocessed_{recording_name}"
             preprocessingviz_output_filename = f"preprocessedviz_{recording_name}"
@@ -267,22 +304,11 @@ if __name__ == "__main__":
             motioncorrected_output_filename = f"motioncorrected_{recording_name}"
             binary_output_filename = f"binary_{recording_name}"
 
+            logging.info(f"Preprocessing recording: {session_name} - {recording_name}")
 
-            if DEBUG:
-                recording_list = []
-                for segment_index in range(recording.get_num_segments()):
-                    recording_one = si.split_recording(recording)[segment_index]
-                    recording_one = recording_one.frame_slice(
-                        start_frame=0, end_frame=int(DEBUG_DURATION * recording.sampling_frequency)
-                    )
-                    recording_list.append(recording_one)
-                recording = si.append_recordings(recording_list)
-
-            print(f"Preprocessing recording: {session_name} - {recording_name}")
-
-            if (T_START is not None or T_STOP is not None) and not DEBUG:
+            if (T_START is not None or T_STOP is not None):
                 if recording.get_num_segments() > 1:
-                    print(f"\tRecording has multiple segments. Ignoring T_START and T_STOP")
+                    logging.info(f"\tRecording has multiple segments. Ignoring T_START and T_STOP")
                 else:
                     if T_START is None:
                         T_START = 0
@@ -291,23 +317,23 @@ if __name__ == "__main__":
                     T_START = float(T_START)
                     T_STOP = float(T_STOP)
                     T_STOP = min(T_STOP, recording.get_duration())
-                    print(f"\tOriginal recording duration: {recording.get_duration()} -- Clipping to {T_START}-{T_STOP} s")
+                    logging.info(f"\tOriginal recording duration: {recording.get_duration()} -- Clipping to {T_START}-{T_STOP} s")
                     start_frame = int(T_START * recording.get_sampling_frequency())
                     end_frame = int(T_STOP * recording.get_sampling_frequency() + 1)
                     recording = recording.frame_slice(start_frame=start_frame, end_frame=end_frame)
 
-            print(f"\tDuration: {np.round(recording.get_total_duration(), 2)} s")
+            logging.info(f"\tDuration: {np.round(recording.get_total_duration(), 2)} s")
 
-            preprocessing_vizualization_data[recording_name]["timeseries"] = dict()
-            preprocessing_vizualization_data[recording_name]["timeseries"]["full"] = dict(
+            preprocessing_visualization_data[recording_name]["timeseries"] = dict()
+            preprocessing_visualization_data[recording_name]["timeseries"]["full"] = dict(
                 raw=recording.to_dict(relative_to=data_folder, recursive=True)
             )
             if not recording.check_serializability("json"):
-                vizualization_file_is_json_serializable = False
+                visualization_file_is_json_serializable = False
             # maybe a recording is from a different source and it doesn't need to be phase shifted
             if "inter_sample_shift" in recording.get_property_keys():
                 recording_ps_full = spre.phase_shift(recording, **preprocessing_params["phase_shift"])
-                preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
+                preprocessing_visualization_data[recording_name]["timeseries"]["full"].update(
                     dict(phase_shift=recording_ps_full.to_dict(relative_to=data_folder, recursive=True))
                 )
             else:
@@ -315,21 +341,21 @@ if __name__ == "__main__":
 
             if FILTER_TYPE == "highpass":
                 recording_filt_full = spre.highpass_filter(recording_ps_full, **preprocessing_params["highpass_filter"])
-                preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
+                preprocessing_visualization_data[recording_name]["timeseries"]["full"].update(
                     dict(highpass=recording_filt_full.to_dict(relative_to=data_folder, recursive=True))
                 )
                 preprocessing_params["filter_type"] = "highpass"
             elif FILTER_TYPE == "bandpass":
                 recording_filt_full = spre.bandpass_filter(recording_ps_full, **preprocessing_params["bandpass_filter"])
-                preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
+                preprocessing_visualization_data[recording_name]["timeseries"]["full"].update(
                     dict(bandpass=recording_filt_full.to_dict(relative_to=data_folder, recursive=True))
                 )
                 preprocessing_params["filter_type"] = "bandpass"
             else:
                 raise ValueError(f"Filter type {FILTER_TYPE} not recognized")
 
-            if recording.get_total_duration() < preprocessing_params["min_preprocessing_duration"] and not DEBUG:
-                print(f"\tRecording is too short ({recording.get_total_duration()}s). Skipping further processing")
+            if recording.get_total_duration() < MIN_DURATION_FOR_PREPROCESSING and not debug:
+                logging.info(f"\tRecording is too short ({recording.get_total_duration()}s). Skipping further processing")
                 preprocessing_notes += (
                     f"\n- Recording is too short ({recording.get_total_duration()}s). Skipping further processing\n"
                 )
@@ -343,8 +369,8 @@ if __name__ == "__main__":
                 dead_channel_mask = channel_labels == "dead"
                 noise_channel_mask = channel_labels == "noise"
                 out_channel_mask = channel_labels == "out"
-                print(f"\tBad channel detection:")
-                print(
+                logging.info(f"\tBad channel detection:")
+                logging.info(
                     f"\t\t- dead channels - {np.sum(dead_channel_mask)}\n\t\t- noise channels - {np.sum(noise_channel_mask)}\n\t\t- out channels - {np.sum(out_channel_mask)}"
                 )
                 dead_channel_ids = recording_filt_full.channel_ids[dead_channel_mask]
@@ -356,18 +382,18 @@ if __name__ == "__main__":
                 skip_processing = False
                 max_bad_channel_fraction = preprocessing_params["max_bad_channel_fraction"]
                 if len(all_bad_channel_ids) >= int(max_bad_channel_fraction * recording.get_num_channels()):
-                    print(f"\tMore than {max_bad_channel_fraction * 100}% bad channels ({len(all_bad_channel_ids)}). ")
+                    logging.info(f"\tMore than {max_bad_channel_fraction * 100}% bad channels ({len(all_bad_channel_ids)}). ")
                     preprocessing_notes += f"\n- Found {len(all_bad_channel_ids)} bad channels."
                     if preprocessing_params["remove_bad_channels"]:
                         skip_processing = True
-                        print("\tSkipping further processing for this recording.")
+                        logging.info("\tSkipping further processing for this recording.")
                         preprocessing_notes += f" Skipping further processing for this recording.\n"
                     else:
                         preprocessing_notes += "\n"
 
                 if not skip_processing:
                     if preprocessing_params["remove_out_channels"]:
-                        print(f"\tRemoving {len(out_channel_ids)} out channels")
+                        logging.info(f"\tRemoving {len(out_channel_ids)} out channels")
                         recording_rm_out = recording_filt_full.remove_channels(out_channel_ids)
                         preprocessing_notes += f"\n- Removed {len(out_channel_ids)} outside of the brain."
                     else:
@@ -386,12 +412,12 @@ if __name__ == "__main__":
                         )
                     except:
                         recording_hp_spatial = None
-                    preprocessing_vizualization_data[recording_name]["timeseries"]["proc"] = dict(
+                    preprocessing_visualization_data[recording_name]["timeseries"]["proc"] = dict(
                         highpass=recording_rm_out.to_dict(relative_to=data_folder, recursive=True),
                         cmr=recording_processed_cmr.to_dict(relative_to=data_folder, recursive=True),
                     )
                     if recording_hp_spatial is not None:
-                        preprocessing_vizualization_data[recording_name]["timeseries"]["proc"].update(
+                        preprocessing_visualization_data[recording_name]["timeseries"]["proc"].update(
                             dict(highpass_spatial=recording_hp_spatial.to_dict(relative_to=data_folder, recursive=True))
                         )
 
@@ -402,7 +428,7 @@ if __name__ == "__main__":
                         recording_processed = recording_hp_spatial
 
                     if preprocessing_params["remove_bad_channels"]:
-                        print(f"\tRemoving {len(bad_channel_ids)} channels after {denoising_strategy} preprocessing")
+                        logging.info(f"\tRemoving {len(bad_channel_ids)} channels after {denoising_strategy} preprocessing")
                         recording_processed = recording_processed.remove_channels(bad_channel_ids)
                         preprocessing_notes += f"\n- Removed {len(bad_channel_ids)} bad channels after preprocessing.\n"
 
@@ -416,16 +442,28 @@ if __name__ == "__main__":
                         from spikeinterface.sortingcomponents.motion import interpolate_motion
 
                         preset = motion_params["preset"]
-                        print(f"\tComputing motion correction with preset: {preset}")
+                        logging.info(f"\tComputing motion correction with preset: {preset}")
 
                         detect_kwargs = motion_params.get("detect_kwargs", {})
                         select_kwargs = motion_params.get("select_kwargs", {})
                         localize_peaks_kwargs = motion_params.get("localize_peaks_kwargs", {})
                         estimate_motion_kwargs = motion_params.get("estimate_motion_kwargs", {})
+
+                        # the win_step_norm/win_scale_norm define the win_step_um/win_scale_um based on the probe_span
+                        win_step_norm = estimate_motion_kwargs.pop("win_step_norm")
+                        win_scale_norm = estimate_motion_kwargs.pop("win_scale_norm")
+                        probe_span = np.ptp(recording.get_channel_locations()[:, 1])
+                        if win_step_norm is not None:
+                            win_step_um = win_step_norm * probe_span
+                            estimate_motion_kwargs["win_step_um"] = win_step_um
+                        if win_scale_norm is not None:
+                            win_scale_um = win_scale_norm * probe_span
+                            estimate_motion_kwargs["win_scale_um"] = win_scale_um
+                        
+                        motion_folder = results_folder / f"motion_{recording_name}"
                         interpolate_motion_kwargs = motion_params.get("interpolate_motion_kwargs", {})
 
-                        motion_folder = results_folder / f"motion_{recording_name}"
-
+                        # TODO: refactor this
                         try:
                             concat_motion = False
                             if recording_processed.get_num_segments() > 1:
@@ -479,11 +517,11 @@ if __name__ == "__main__":
                                 recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
 
                             if motion_params["apply"]:
-                                print(f"\tApplying motion correction")
+                                logging.info(f"\tApplying motion correction")
                                 recording_processed = recording_corrected
                                 recording_bin = recording_bin_corrected
                         except Exception as e:
-                            print(f"\tMotion correction failed:\n\t{e}")
+                            logging.info(f"\tMotion correction failed!")
                             recording_corrected = None
                             recording_bin_corrected = None
 
@@ -517,7 +555,7 @@ if __name__ == "__main__":
 
             if skip_processing:
                 # in this case, processed timeseries will not be visualized
-                preprocessing_vizualization_data[recording_name]["timeseries"]["proc"] = None
+                preprocessing_visualization_data[recording_name]["timeseries"]["proc"] = None
                 recording_drift = recording_filt_full
                 drift_relative_folder = data_folder
                 # make a dummy file if too many bad channels to skip downstream processing
@@ -526,17 +564,17 @@ if __name__ == "__main__":
                 error_file.write_text("Too many bad channels")
 
             # store recording for drift visualization
-            preprocessing_vizualization_data[recording_name]["drift"] = dict(
+            preprocessing_visualization_data[recording_name]["drift"] = dict(
                 recording=recording_drift.to_dict(relative_to=drift_relative_folder, recursive=True)
             )
 
-            if vizualization_file_is_json_serializable:            
+            if visualization_file_is_json_serializable:            
                 with open(results_folder / f"{preprocessingviz_output_filename}.json", "w") as f:
-                    json.dump(check_json(preprocessing_vizualization_data), f, indent=4)
+                    json.dump(check_json(preprocessing_visualization_data), f, indent=4)
             else:
                 # then dump to pickle
                 with open(results_folder / f"{preprocessingviz_output_filename}.pkl", "wb") as f:
-                    pickle.dump(preprocessing_vizualization_data, f)
+                    pickle.dump(preprocessing_visualization_data, f)
 
             t_preprocessing_end = time.perf_counter()
             elapsed_time_preprocessing = np.round(t_preprocessing_end - t_preprocessing_start, 2)
@@ -564,7 +602,14 @@ if __name__ == "__main__":
             with open(preprocessing_output_process_json, "w") as f:
                 f.write(preprocessing_process.model_dump_json(indent=3))
 
+            # copy data_description and subject json
+            if ecephys_session_folder is not None:
+                metadata_json_files = [p for p in ecephys_session_folder.iterdir() if p.suffix == ".json"]
+                for metadata_file in metadata_json_files:
+                    if "data_description" in metadata_file.name or "subject" in metadata_file.name:
+                        shutil.copy(metadata_file, results_folder / f"preprocessing_{recording_name}_{metadata_file.name}")
+
         t_preprocessing_end_all = time.perf_counter()
         elapsed_time_preprocessing_all = np.round(t_preprocessing_end_all - t_preprocessing_start_all, 2)
 
-        print(f"PREPROCESSING time: {elapsed_time_preprocessing_all}s")
+        logging.info(f"PREPROCESSING time: {elapsed_time_preprocessing_all}s")
