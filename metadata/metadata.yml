@@ -1,5 +1,5 @@
 metadata_version: 1
-name: Preprocess Ecephys (dev)
+name: Preprocess Ecephys
 description: |-
   This capsule is designed to preprocess data for the AIND pipeline.
 
