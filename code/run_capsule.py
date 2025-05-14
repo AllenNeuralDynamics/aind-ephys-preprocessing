@@ -450,9 +450,15 @@ if __name__ == "__main__":
                         estimate_motion_kwargs = motion_params.get("estimate_motion_kwargs", {})
 
                         # the win_step_norm/win_scale_norm define the win_step_um/win_scale_um based on the probe_span
-                        win_step_norm = estimate_motion_kwargs.pop("win_step_norm")
-                        win_scale_norm = estimate_motion_kwargs.pop("win_scale_norm")
                         probe_span = np.ptp(recording.get_channel_locations()[:, 1])
+                        if "win_step_norm" in estimate_motion_kwargs:
+                            win_step_norm = estimate_motion_kwargs.pop("win_step_norm")
+                        else:
+                            win_step_norm = None
+                        if "win_scale_norm" in estimate_motion_kwargs:
+                            win_scale_norm = estimate_motion_kwargs.pop("win_scale_norm")
+                        else:
+                            win_scale_norm = None
                         if win_step_norm is not None:
                             win_step_um = win_step_norm * probe_span
                             estimate_motion_kwargs["win_step_um"] = win_step_um
