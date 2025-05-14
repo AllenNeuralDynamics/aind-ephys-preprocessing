@@ -448,70 +448,97 @@ if __name__ == "__main__":
                         select_kwargs = motion_params.get("select_kwargs", {})
                         localize_peaks_kwargs = motion_params.get("localize_peaks_kwargs", {})
                         estimate_motion_kwargs = motion_params.get("estimate_motion_kwargs", {})
-                        interpolate_motion_kwargs = motion_params.get("interpolate_motion_kwargs", {})
+
+                        # the win_step_norm/win_scale_norm define the win_step_um/win_scale_um based on the probe_span
+                        probe_span = np.ptp(recording.get_channel_locations()[:, 1])
+                        if "win_step_norm" in estimate_motion_kwargs:
+                            win_step_norm = estimate_motion_kwargs.pop("win_step_norm")
+                        else:
+                            win_step_norm = None
+                        if "win_scale_norm" in estimate_motion_kwargs:
+                            win_scale_norm = estimate_motion_kwargs.pop("win_scale_norm")
+                        else:
+                            win_scale_norm = None
+                        if win_step_norm is not None:
+                            win_step_um = win_step_norm * probe_span
+                            estimate_motion_kwargs["win_step_um"] = win_step_um
+                            logging.info(f"\t\tUsing win_step_um: {win_step_um}")
+                        if win_scale_norm is not None:
+                            win_scale_um = win_scale_norm * probe_span
+                            estimate_motion_kwargs["win_scale_um"] = win_scale_um
+                            logging.info(f"\t\tUsing win_scale_um: {win_scale_um}")
 
                         motion_folder = results_folder / f"motion_{recording_name}"
+                        interpolate_motion_kwargs = motion_params.get("interpolate_motion_kwargs", {})
 
-                        try:
-                            concat_motion = False
-                            if recording_processed.get_num_segments() > 1:
-                                recording_bin_c = si.concatenate_recordings([recording_bin])
-                                recording_processed_c = si.concatenate_recordings([recording_processed])
-                                concat_motion = True
-                            else:
-                                recording_bin_c = recording_bin
-                                recording_processed_c = recording_processed
+                        concat_motion = False
+                        recording_corrected = None
+                        if recording_processed.get_num_segments() > 1:
+                            recording_bin_c = si.concatenate_recordings([recording_bin])
+                            recording_processed_c = si.concatenate_recordings([recording_processed])
+                            concat_motion = True
+                        else:
+                            recording_bin_c = recording_bin
+                            recording_processed_c = recording_processed
 
-                            recording_bin_corrected, motion_info = spre.correct_motion(
-                                recording_bin_c,
-                                preset=preset,
-                                folder=motion_folder,
-                                output_motion_info=True,
-                                detect_kwargs=detect_kwargs,
-                                select_kwargs=select_kwargs,
-                                localize_peaks_kwargs=localize_peaks_kwargs,
-                                estimate_motion_kwargs=estimate_motion_kwargs,
-                                interpolate_motion_kwargs=interpolate_motion_kwargs
-                            )
-                            recording_corrected = interpolate_motion(
-                                recording_processed_c.astype("float32"),
-                                motion=motion_info["motion"],
-                                **interpolate_motion_kwargs
-                            )
+                        # use compute motion
+                        motion = spre.compute_motion(
+                            recording_bin_c,
+                            preset=preset,
+                            folder=motion_folder,
+                            detect_kwargs=detect_kwargs,
+                            select_kwargs=select_kwargs,
+                            localize_peaks_kwargs=localize_peaks_kwargs,
+                            estimate_motion_kwargs=estimate_motion_kwargs,
+                            raise_error=False
+                        )
+                        if motion is not None:
+                            logging.info(f"\tMotion computed successfully!")
+                            if motion_params["apply"]:
+                                logging.info(f"\tApplying motion correction")
+                                recording_bin_corrected = interpolate_motion(
+                                    recording_bin_c.astype("float32"),
+                                    motion=motion,
+                                    **interpolate_motion_kwargs
+                                )
+                                recording_corrected = interpolate_motion(
+                                    recording_processed_c.astype("float32"),
+                                    motion=motion,
+                                    **interpolate_motion_kwargs
+                                )
 
-                            # split segments back
-                            if concat_motion:
-                                rec_corrected_list = []
-                                rec_corrected_bin_list = []
-                                for segment_index in range(recording_bin.get_num_segments()):
-                                    num_samples = recording_bin.get_num_samples(segment_index)
-                                    if segment_index == 0:
-                                        start_frame = 0
-                                    else:
-                                        start_frame = recording_bin.get_num_samples(segment_index - 1)
-                                    end_frame = start_frame + num_samples
-                                    rec_split_corrected = recording_corrected.frame_slice(
-                                        start_frame=start_frame,
-                                        end_frame=end_frame
-                                    )
-                                    rec_corrected_list.append(rec_split_corrected)
-                                    rec_split_bin = recording_bin_corrected.frame_slice(
-                                        start_frame=start_frame,
-                                        end_frame=end_frame
-                                    )
-                                    rec_corrected_bin_list.append(rec_split_bin)
-                                # append all segments
-                                recording_corrected = si.append_recordings(rec_corrected_list)
-                                recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
+                                # split segments back
+                                if concat_motion:
+                                    rec_corrected_list = []
+                                    rec_corrected_bin_list = []
+                                    for segment_index in range(recording_bin.get_num_segments()):
+                                        num_samples = recording_bin.get_num_samples(segment_index)
+                                        if segment_index == 0:
+                                            start_frame = 0
+                                        else:
+                                            start_frame = recording_bin.get_num_samples(segment_index - 1)
+                                        end_frame = start_frame + num_samples
+                                        rec_split_corrected = recording_corrected.frame_slice(
+                                            start_frame=start_frame,
+                                            end_frame=end_frame
+                                        )
+                                        rec_corrected_list.append(rec_split_corrected)
+                                        rec_split_bin = recording_bin_corrected.frame_slice(
+                                            start_frame=start_frame,
+                                            end_frame=end_frame
+                                        )
+                                        rec_corrected_bin_list.append(rec_split_bin)
+                                    # append all segments
+                                    recording_corrected = si.append_recordings(rec_corrected_list)
+                                    recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
 
                             if motion_params["apply"]:
                                 logging.info(f"\tApplying motion correction")
                                 recording_processed = recording_corrected
                                 recording_bin = recording_bin_corrected
-                        except Exception as e:
-                            logging.info(f"\tMotion correction failed!")
-                            recording_corrected = None
-                            recording_bin_corrected = None
+                        else:
+                            logging.info(f"\tMotion computation failed. Skipping motion correction")
+                            preprocessing_notes += "\n- Motion computation failed. Skipping motion correction.\n"
 
                     # this is used to reload the binary traces downstream
                     dump_to_json_or_pickle(
