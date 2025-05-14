@@ -462,10 +462,12 @@ if __name__ == "__main__":
                         if win_step_norm is not None:
                             win_step_um = win_step_norm * probe_span
                             estimate_motion_kwargs["win_step_um"] = win_step_um
+                            logging.info(f"\t\tUsing win_step_um: {win_step_um}")
                         if win_scale_norm is not None:
                             win_scale_um = win_scale_norm * probe_span
                             estimate_motion_kwargs["win_scale_um"] = win_scale_um
-                        
+                            logging.info(f"\t\tUsing win_scale_um: {win_scale_um}")
+
                         motion_folder = results_folder / f"motion_{recording_name}"
                         interpolate_motion_kwargs = motion_params.get("interpolate_motion_kwargs", {})
 
@@ -534,6 +536,9 @@ if __name__ == "__main__":
                                 logging.info(f"\tApplying motion correction")
                                 recording_processed = recording_corrected
                                 recording_bin = recording_bin_corrected
+                        else:
+                            logging.info(f"\tMotion computation failed. Skipping motion correction")
+                            preprocessing_notes += "\n- Motion computation failed. Skipping motion correction.\n"
 
                     # this is used to reload the binary traces downstream
                     dump_to_json_or_pickle(
