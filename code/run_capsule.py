@@ -490,7 +490,7 @@ if __name__ == "__main__":
                             select_kwargs=select_kwargs,
                             localize_peaks_kwargs=localize_peaks_kwargs,
                             estimate_motion_kwargs=estimate_motion_kwargs,
-                            raise_error=False
+                            raise_error=True
                         )
                         if motion is not None:
                             logging.info(f"\tMotion computed successfully!")
