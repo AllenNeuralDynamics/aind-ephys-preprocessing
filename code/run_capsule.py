@@ -165,6 +165,7 @@ if __name__ == "__main__":
         REMOVE_OUT_CHANNELS = preprocessing_params.pop("remove_out_channels", False)
         REMOVE_BAD_CHANNELS = preprocessing_params.pop("remove_bad_channels", False)
         MAX_BAD_CHANNEL_FRACTION = preprocessing_params.pop("max_bad_channel_fraction", 0.5)
+        MIN_DURATION_FOR_PREPROCESSING = preprocessing_params.pop("min_preprocessing_duration", 120)
         motion_params = preprocessing_params.pop("motion_correction", None)
         MOTION_PRESET = motion_params.pop("preset", None)
         COMPUTE_MOTION = motion_params.pop("compute", True)
