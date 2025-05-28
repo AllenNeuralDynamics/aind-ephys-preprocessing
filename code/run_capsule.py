@@ -134,11 +134,7 @@ n_jobs_help = (
 n_jobs_group.add_argument("static_n_jobs", nargs="?", default=None, help=n_jobs_help)
 n_jobs_group.add_argument("--n-jobs", default="-1", help=n_jobs_help)
 
-params_group = parser.add_mutually_exclusive_group()
-params_file_help = "Optional json file with parameters"
-params_group.add_argument("static_params_file", nargs="?", default=None, help=params_file_help)
-params_group.add_argument("--params-file", default=None, help=params_file_help)
-params_group.add_argument("--params-str", default=None, help="Optional json string with parameters")
+parser.add_argument("--params", default=None, help="Path to the parameters file or JSON string. If given, it will override all other arguments.")
 
 
 
@@ -152,27 +148,51 @@ def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
 if __name__ == "__main__":
     args = parser.parse_args()
 
-    DENOISING_STRATEGY = args.denoising or args.static_denoising
-    FILTER_TYPE = args.filter_type or args.static_filter_type
-    REMOVE_OUT_CHANNELS = False if args.no_remove_out_channels else args.static_remove_out_channels == "true"
-    REMOVE_BAD_CHANNELS = False if args.no_remove_bad_channels else args.static_remove_bad_channels == "true"
-    MAX_BAD_CHANNEL_FRACTION = float(args.static_max_bad_channel_fraction or args.max_bad_channel_fraction)
-    motion_arg = args.motion or args.static_motion
-    MOTION_PRESET = args.static_motion_preset or args.motion_preset
-    COMPUTE_MOTION = True if motion_arg != "skip" else False
-    APPLY_MOTION = True if motion_arg == "apply" else False
+    PARAMS = args.params
+    if PARAMS is not None:
+        try:
+            # try to parse the JSON string first to avoid file name too long error
+            preprocessing_params = json.loads(PARAMS)
+        except json.JSONDecodeError:
+            if Path(PARAMS).is_file():
+                with open(PARAMS, "r") as f:
+                    preprocessing_params = json.load(f)
+            else:
+                raise ValueError(f"Invalid parameters: {PARAMS} is not a valid JSON string or file path")
+
+        DENOISING_STRATEGY = preprocessing_params.pop("denoising_strategy", "cmr")
+        FILTER_TYPE = preprocessing_params.pop("filter_type", "highpass")
+        REMOVE_OUT_CHANNELS = preprocessing_params.pop("remove_out_channels", False)
+        REMOVE_BAD_CHANNELS = preprocessing_params.pop("remove_bad_channels", False)
+        MAX_BAD_CHANNEL_FRACTION = preprocessing_params.pop("max_bad_channel_fraction", 0.5)
+        MIN_DURATION_FOR_PREPROCESSING = preprocessing_params.pop("min_preprocessing_duration", 120)
+        motion_params = preprocessing_params.get("motion_correction", None)
+        MOTION_PRESET = motion_params.pop("preset", None)
+        COMPUTE_MOTION = motion_params.pop("compute", True)
+        APPLY_MOTION = motion_params.pop("apply", False)
+    else:
+        with open("params.json", "r") as f:
+            preprocessing_params = json.load(f)
+        DENOISING_STRATEGY = args.denoising or args.static_denoising
+        FILTER_TYPE = args.filter_type or args.static_filter_type
+        REMOVE_OUT_CHANNELS = False if args.no_remove_out_channels else args.static_remove_out_channels == "true"
+        REMOVE_BAD_CHANNELS = False if args.no_remove_bad_channels else args.static_remove_bad_channels == "true"
+        MAX_BAD_CHANNEL_FRACTION = float(args.static_max_bad_channel_fraction or args.max_bad_channel_fraction)
+        motion_arg = args.motion or args.static_motion
+        MOTION_PRESET = args.static_motion_preset or args.motion_preset
+        COMPUTE_MOTION = True if motion_arg != "skip" else False
+        APPLY_MOTION = True if motion_arg == "apply" else False
+        MIN_DURATION_FOR_PREPROCESSING = args.static_min_duration_for_preprocessing or args.min_duration_for_preprocessing
+
     T_START = args.static_t_start or args.t_start
     if isinstance(T_START, str) and T_START == "":
         T_START = None
     T_STOP = args.static_t_stop or args.t_stop
     if isinstance(T_STOP, str) and T_STOP == "":
         T_STOP = None
-    MIN_DURATION_FOR_PREPROCESSING = args.static_min_duration_for_preprocessing or args.min_duration_for_preprocessing
 
     N_JOBS = args.static_n_jobs or args.n_jobs
     N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
-    PARAMS_FILE = args.static_params_file or args.params_file
-    PARAMS_STR = args.params_str
 
     # Use CO_CPUS env variable if available
     N_JOBS_CO = os.getenv("CO_CPUS")
@@ -224,28 +244,17 @@ if __name__ == "__main__":
     logging.info(f"\tMIN_DURATION FOR PREPROCESSING: {MIN_DURATION_FOR_PREPROCESSING}")
     logging.info(f"\tN_JOBS: {N_JOBS}")
 
-    if PARAMS_FILE is not None:
-        logging.info(f"\nUsing custom parameter file: {PARAMS_FILE}")
-        with open(PARAMS_FILE, "r") as f:
-            processing_params = json.load(f)
-    elif PARAMS_STR is not None:
-        processing_params = json.loads(PARAMS_STR)
-    else:
-        with open("params.json", "r") as f:
-            processing_params = json.load(f)
-
     data_process_prefix = "data_process_preprocessing"
 
-    job_kwargs = processing_params["job_kwargs"]
+    job_kwargs = preprocessing_params["job_kwargs"]
     job_kwargs["n_jobs"] = N_JOBS
     si.set_global_job_kwargs(**job_kwargs)
 
-    preprocessing_params = processing_params["preprocessing"]
     preprocessing_params["denoising_strategy"] = DENOISING_STRATEGY
     preprocessing_params["remove_out_channels"] = REMOVE_OUT_CHANNELS
     preprocessing_params["remove_bad_channels"] = REMOVE_BAD_CHANNELS
     preprocessing_params["max_bad_channel_fraction"] = MAX_BAD_CHANNEL_FRACTION
-    motion_params = processing_params["motion_correction"]
+    motion_params = preprocessing_params["motion_correction"]
     motion_params["compute"] = COMPUTE_MOTION
     motion_params["apply"] = APPLY_MOTION
     if MOTION_PRESET is not None:
