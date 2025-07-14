@@ -470,7 +470,16 @@ if __name__ == "__main__":
 
                                     # read OE events
                                     events = se.read_openephys_event(ecephys_folder, block_index=0)
-                                    evts = events.get_events(channel_id="PXIe-6341Digital Input Line")
+                                    evts = None
+                                    for segment_index in range(events.get_num_segments()):
+                                        evts_seg = events.get_events(
+                                            channel_id="PXIe-6341Digital Input Line",
+                                            segment_index=segment_index
+                                        )
+                                        if evts is None:
+                                            evts = evts_seg
+                                        else:
+                                            evts = np.concatenate([evts, evts_seg])
 
                                     labels, counts = np.unique(evts["label"], return_counts=True)
                                     (label_index,) = np.where(counts == len(opto_df))
