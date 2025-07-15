@@ -1,7 +1,8 @@
 {
     "job_kwargs": {
         "chunk_duration": "1s",
-        "progress_bar": false
+        "progress_bar": false,
+        "mp_context": "spawn"
     },
     "denoising_strategy": "cmr",
     "min_preprocessing_duration": 120,
