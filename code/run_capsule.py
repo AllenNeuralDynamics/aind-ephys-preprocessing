@@ -101,6 +101,17 @@ motion_preset_group.add_argument(
 )
 motion_preset_group.add_argument("static_motion_preset", nargs="?", default=None, help=motion_preset_help)
 
+motion_temporal_bin_s_group = parser.add_mutually_exclusive_group()
+motion_temporal_bin_s_help = (
+    ""
+)
+motion_temporal_bin_s_group.add_argument(
+    "--motion-temporal-bin-s", default=1, help=motion_temporal_bin_s_help
+)
+motion_temporal_bin_s_group.add_argument(
+    "static_motion_temporal_bin_s", nargs="?", default=None, help=motion_temporal_bin_s_help
+)
+
 t_start_group = parser.add_mutually_exclusive_group()
 t_start_help = (
     "Start time of the recording in seconds (assumes recording starts at 0). "
@@ -168,6 +179,7 @@ if __name__ == "__main__":
         MIN_DURATION_FOR_PREPROCESSING = preprocessing_params.pop("min_preprocessing_duration", 120)
         motion_params = preprocessing_params.get("motion_correction", None)
         MOTION_PRESET = motion_params.pop("preset", None)
+        MOTION_TEMPORAL_BIN_S = motion_params.pop("temporal_bin_s", 1)
         COMPUTE_MOTION = motion_params.pop("compute", True)
         APPLY_MOTION = motion_params.pop("apply", False)
     else:
@@ -180,6 +192,7 @@ if __name__ == "__main__":
         MAX_BAD_CHANNEL_FRACTION = float(args.static_max_bad_channel_fraction or args.max_bad_channel_fraction)
         motion_arg = args.motion or args.static_motion
         MOTION_PRESET = args.static_motion_preset or args.motion_preset
+        MOTION_TEMPORAL_BIN_S = float(args.static_motion_temporal_bin_s or args.motion_temporal_bin_s)
         COMPUTE_MOTION = True if motion_arg != "skip" else False
         APPLY_MOTION = True if motion_arg == "apply" else False
         MIN_DURATION_FOR_PREPROCESSING = args.static_min_duration_for_preprocessing or args.min_duration_for_preprocessing
@@ -239,6 +252,7 @@ if __name__ == "__main__":
     logging.info(f"\tCOMPUTE_MOTION: {COMPUTE_MOTION}")
     logging.info(f"\tAPPLY_MOTION: {APPLY_MOTION}")
     logging.info(f"\tMOTION PRESET: {MOTION_PRESET}")
+    logging.info(f"\tMOTION TEMPORAL BIN S: {MOTION_TEMPORAL_BIN_S}")
     logging.info(f"\tT_START: {T_START}")
     logging.info(f"\tT_STOP: {T_STOP}")
     logging.info(f"\tMIN_DURATION FOR PREPROCESSING: {MIN_DURATION_FOR_PREPROCESSING}")
@@ -457,6 +471,9 @@ if __name__ == "__main__":
                         select_kwargs = motion_params.get("select_kwargs", {})
                         localize_peaks_kwargs = motion_params.get("localize_peaks_kwargs", {})
                         estimate_motion_kwargs = motion_params.get("estimate_motion_kwargs", {})
+
+                        estimate_motion_kwargs["bin_s"] = MOTION_TEMPORAL_BIN_S
+                        logging.info(f"\t\tUsing bin_s: {MOTION_TEMPORAL_BIN_S}")
 
                         # the win_step_norm/win_scale_norm define the win_step_um/win_scale_um based on the probe_span
                         probe_span = np.ptp(recording.get_channel_locations()[:, 1])
