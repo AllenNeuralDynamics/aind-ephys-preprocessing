@@ -1,4 +1,4 @@
-# hash:sha256:955278be844927d109940426f83831937bf4ce1a01ad6ece7949d6e75f786a68
+# hash:sha256:9b8f603943e76acded334dee8f4e7ca4389424568e79c6d3f53003a747535bda
 ARG REGISTRY_HOST
 FROM $REGISTRY_HOST/codeocean/jupyterlab:3.6.1-miniconda4.12.0-python3.9-ubuntu20.04
 
@@ -12,9 +12,6 @@ RUN pip install -U --no-cache-dir \
     aind-data-schema==1.3.0 \
     aind-log-utils==0.2.3 \
     s3fs==2025.5.1 \
-    spikeinterface[full]==0.102.3 \
+    spikeinterface[full]==0.103.0 \
     torch==2.6.0 \
     wavpack-numcodecs==0.2.2
-
-COPY postInstall /
-RUN /postInstall
