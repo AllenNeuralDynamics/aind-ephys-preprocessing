@@ -496,7 +496,7 @@ if __name__ == "__main__":
                             if len(stimulation_trigger_times) == 0:
                                 logging.info(
                                     "Couldn't find optogenetics stimulation in behavior NIDAQ. "
-                                    "Looking for events using HRAP behavior file." 
+                                    "Looking for events using HARP behavior file." 
                                 )
                                 # check if HARP system
                                 behavior_folder = None
@@ -528,8 +528,8 @@ if __name__ == "__main__":
                                         with open(behavior_json_file) as f:
                                             behavior_data = json.load(f)
                                         laser_info = behavior_data.get("Opto_dialog", None)
-                                        stimulation_trigger_times = behavior_data.get("B_OptogeneticsTimeHarp", None)
-                                        if laser_info is not None and stimulation_trigger_times is not None:
+                                        stimulation_trigger_times = behavior_data.get("B_OptogeneticsTimeHarp", [])
+                                        if laser_info is not None and len(stimulation_trigger_times) > 0:
                                             active_laser_ids = [
                                                 k.split("_")[1]
                                                 for k, v in laser_info.items()
