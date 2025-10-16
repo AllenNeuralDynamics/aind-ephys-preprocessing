@@ -9,6 +9,7 @@ COPY git-askpass /
 RUN pip install -U --no-cache-dir \
     aind-data-schema==1.3.0 \
     aind-log-utils==0.2.3 \
+    s3fs==2025.5.1 \
     spikeinterface[full]==0.103.0 \
     torch==2.6.0 \
     wavpack-numcodecs==0.2.2
