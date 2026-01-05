@@ -291,6 +291,7 @@ if __name__ == "__main__":
             datetime_start_preproc = datetime.now()
             t_preprocessing_start = time.perf_counter()
             preprocessing_notes = ""
+            skip_reason = None
 
             if job_config_file.suffix == ".json":
                 with open(job_config_file, "r") as f:
@@ -384,6 +385,7 @@ if __name__ == "__main__":
                 )
                 channel_labels = None
                 skip_processing = True
+                skip_reason = "Recording too short"
             else:
                 # IBL bad channel detection
                 _, channel_labels = spre.detect_bad_channels(
@@ -409,6 +411,7 @@ if __name__ == "__main__":
                     preprocessing_notes += f"\n- Found {len(all_bad_channel_ids)} bad channels."
                     if preprocessing_params["remove_bad_channels"]:
                         skip_processing = True
+                        skip_reason = "Too many bad channels"
                         logging.info("\tSkipping further processing for this recording.")
                         preprocessing_notes += f" Skipping further processing for this recording.\n"
                     else:
@@ -602,7 +605,7 @@ if __name__ == "__main__":
                 # make a dummy file if too many bad channels to skip downstream processing
                 preprocessing_output_folder.mkdir()
                 error_file = preprocessing_output_folder / "error.txt"
-                error_file.write_text("Too many bad channels")
+                error_file.write_text(skip_reason or "Unknown skip reason")
 
             # store recording for drift visualization
             preprocessing_visualization_data[recording_name]["drift"] = dict(
