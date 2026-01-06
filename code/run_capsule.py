@@ -605,7 +605,7 @@ if __name__ == "__main__":
                 # make a dummy file if too many bad channels to skip downstream processing
                 preprocessing_output_folder.mkdir()
                 error_file = preprocessing_output_folder / "error.txt"
-                error_file.write_text(skip_reason or "Unknown skip reason")
+                error_file.write_text(skip_reason)
 
             # store recording for drift visualization
             preprocessing_visualization_data[recording_name]["drift"] = dict(
