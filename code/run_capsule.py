@@ -436,7 +436,8 @@ if __name__ == "__main__":
                         recording_hp_spatial = spre.highpass_spatial_filter(
                             recording_interp, **preprocessing_params["highpass_spatial_filter"]
                         )
-                    except:
+                    except Exception as e:
+                        logging.info(f"\tHighpass spatial filter failed: {e}.")
                         recording_hp_spatial = None
                     preprocessing_visualization_data[recording_name]["timeseries"]["proc"] = dict(
                         highpass=recording_rm_out.to_dict(relative_to=data_folder, recursive=True),
@@ -451,7 +452,11 @@ if __name__ == "__main__":
                     if denoising_strategy == "cmr":
                         recording_processed = recording_processed_cmr
                     else:
-                        recording_processed = recording_hp_spatial
+                        if recording_hp_spatial is not None:
+                            recording_processed = recording_hp_spatial
+                        else:
+                            logging.info(f"\tFalling back to CMR preprocessing since highpass spatial filter failed.")
+                            recording_processed = recording_processed_cmr
 
                     if preprocessing_params["remove_bad_channels"]:
                         logging.info(f"\tRemoving {len(bad_channel_ids)} channels after {denoising_strategy} preprocessing")
