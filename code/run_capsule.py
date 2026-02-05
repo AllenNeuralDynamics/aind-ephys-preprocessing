@@ -27,7 +27,9 @@ import spikeinterface.preprocessing as spre
 from spikeinterface.core.core_tools import check_json
 
 # AIND
-from aind_data_schema.core.processing import DataProcess
+from aind_data_schema.core.processing import DataProcess, ProcessStage
+from aind_data_schema.components.identifiers import Code
+from aind_data_schema_models.process_names import ProcessName
 
 try:
     from aind_log_utils import log
@@ -629,15 +631,19 @@ if __name__ == "__main__":
             else:
                 preprocessing_outputs = dict()
             preprocessing_process = DataProcess(
+                process_type=ProcessName.EPHYS_PREPROCESSING,
+                stage=ProcessStage.PROCESSING,
                 name="Ephys preprocessing",
-                software_version=VERSION,  # either release or git commit
+                experimenters=["Alessio Buccino"],
+                code=Code(
+                    url=URL,
+                    version=VERSION, # either release or git commit
+                    parameters=preprocessing_params
+                ),
                 start_date_time=datetime_start_preproc,
                 end_date_time=datetime_start_preproc + timedelta(seconds=np.floor(elapsed_time_preprocessing)),
-                input_location=str(data_folder),
-                output_location=str(results_folder),
-                code_url=URL,
-                parameters=preprocessing_params,
-                outputs=preprocessing_outputs,
+                output_path=str(results_folder),
+                output_parameters=preprocessing_outputs,
                 notes=preprocessing_notes,
             )
             with open(preprocessing_output_process_json, "w") as f:
