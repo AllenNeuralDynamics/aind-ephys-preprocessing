@@ -210,7 +210,7 @@ if __name__ == "__main__":
     N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
 
     # Use CO_CPUS/SLURM_CPUS_ON_NODE env variable if available
-    N_JOBS_EXT = os.getenv("CO_CPUS") or os.getenv("SLURM_CPUS_ON_NODE")
+    N_JOBS_EXT = os.getenv("CO_CPUS") or os.getenv("SLURM_CPUS_ON_NODE") or os.getenv("SLURM_CPUS_PER_TASK")
     N_JOBS = int(N_JOBS_EXT) if N_JOBS_EXT is not None else N_JOBS
 
     # setup AIND logging before any other logging call
@@ -293,6 +293,7 @@ if __name__ == "__main__":
             datetime_start_preproc = datetime.now()
             t_preprocessing_start = time.perf_counter()
             preprocessing_notes = ""
+            skip_reason = None
 
             if job_config_file.suffix == ".json":
                 with open(job_config_file, "r") as f:
@@ -386,6 +387,7 @@ if __name__ == "__main__":
                 )
                 channel_labels = None
                 skip_processing = True
+                skip_reason = "Recording too short"
             else:
                 # IBL bad channel detection
                 _, channel_labels = spre.detect_bad_channels(
@@ -411,6 +413,7 @@ if __name__ == "__main__":
                     preprocessing_notes += f"\n- Found {len(all_bad_channel_ids)} bad channels."
                     if preprocessing_params["remove_bad_channels"]:
                         skip_processing = True
+                        skip_reason = "Too many bad channels"
                         logging.info("\tSkipping further processing for this recording.")
                         preprocessing_notes += f" Skipping further processing for this recording.\n"
                     else:
@@ -435,7 +438,8 @@ if __name__ == "__main__":
                         recording_hp_spatial = spre.highpass_spatial_filter(
                             recording_interp, **preprocessing_params["highpass_spatial_filter"]
                         )
-                    except:
+                    except Exception as e:
+                        logging.info(f"\tHighpass spatial filter failed: {e}.")
                         recording_hp_spatial = None
                     preprocessing_visualization_data[recording_name]["timeseries"]["proc"] = dict(
                         highpass=recording_rm_out.to_dict(relative_to=data_folder, recursive=True),
@@ -450,7 +454,11 @@ if __name__ == "__main__":
                     if denoising_strategy == "cmr":
                         recording_processed = recording_processed_cmr
                     else:
-                        recording_processed = recording_hp_spatial
+                        if recording_hp_spatial is not None:
+                            recording_processed = recording_hp_spatial
+                        else:
+                            logging.info(f"\tFalling back to CMR preprocessing since highpass spatial filter failed.")
+                            recording_processed = recording_processed_cmr
 
                     if preprocessing_params["remove_bad_channels"]:
                         logging.info(f"\tRemoving {len(bad_channel_ids)} channels after {denoising_strategy} preprocessing")
@@ -604,7 +612,7 @@ if __name__ == "__main__":
                 # make a dummy file if too many bad channels to skip downstream processing
                 preprocessing_output_folder.mkdir()
                 error_file = preprocessing_output_folder / "error.txt"
-                error_file.write_text("Too many bad channels")
+                error_file.write_text(skip_reason)
 
             # store recording for drift visualization
             preprocessing_visualization_data[recording_name]["drift"] = dict(
