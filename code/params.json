@@ -4,8 +4,10 @@
         "progress_bar": false,
         "mp_context": "spawn"
     },
-    "denoising_strategy": "cmr",
     "min_preprocessing_duration": 120,
+    "custom_preprocessing_pipeline": null,
+    "denoising_strategy": "cmr",
+    "filter_type": "highpass",
     "highpass_filter": {
         "freq_min": 300.0,
         "margin_ms": 5.0
