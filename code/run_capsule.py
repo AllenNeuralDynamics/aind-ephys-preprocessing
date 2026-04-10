@@ -356,6 +356,7 @@ if __name__ == "__main__":
             preprocessing_visualization_data[recording_name]["timeseries"]["full"] = dict(
                 raw=recording.to_dict(relative_to=data_folder, recursive=True)
             )
+            preprocessing_visualization_data[recording_name]["timeseries"]["proc"] = None
             if not recording.check_serializability("json"):
                 visualization_file_is_json_serializable = False
 
@@ -379,6 +380,16 @@ if __name__ == "__main__":
                         skip_processing = True
                         skip_reason = f"Custom preprocessing pipeline failed: {e}"
                     channel_labels = None
+                    # populate visualization data for each step of the custom pipeline
+                    for step_name in CUSTOM_PREPROCESSING_PIPELINE.keys():
+                        num_parents = len(CUSTOM_PREPROCESSING_PIPELINE) - list(CUSTOM_PREPROCESSING_PIPELINE.keys()).index(step_name) - 1
+                        logging.info(f"\tAdding visualization data for step {step_name} with {num_parents} parents")
+                        step_recording = recording_processed
+                        for i in range(num_parents):
+                            step_recording = step_recording.get_parent()
+                        preprocessing_visualization_data[recording_name]["timeseries"]["full"][step_name] = (
+                            step_recording.to_dict(relative_to=data_folder, recursive=True)
+                        )
                 else:
                     # Using default steps of the preprocessing pipeline 
                     # (phase shift, filtering, bad channel detection, CMR, interpolation, spatial highpass)
