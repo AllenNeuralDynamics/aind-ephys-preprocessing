@@ -617,8 +617,8 @@ if __name__ == "__main__":
                             relative_to=results_folder
                         )
 
-                    recording_drift = recording_bin
-                    drift_relative_folder = results_folder
+                recording_drift = recording_bin
+                drift_relative_folder = results_folder
 
             if skip_processing:
                 # in this case, processed timeseries will not be visualized
