@@ -378,6 +378,7 @@ if __name__ == "__main__":
                         logging.info(f"\tCustom preprocessing pipeline failed: {e}. Skipping preprocessing for this recording.")
                         skip_processing = True
                         skip_reason = f"Custom preprocessing pipeline failed: {e}"
+                    channel_labels = None
                 else:
                     # Using default steps of the preprocessing pipeline 
                     # (phase shift, filtering, bad channel detection, CMR, interpolation, spatial highpass)
