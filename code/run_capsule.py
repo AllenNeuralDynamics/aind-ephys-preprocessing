@@ -370,7 +370,7 @@ if __name__ == "__main__":
                 skip_reason = "Recording too short"
             else:
                 if CUSTOM_PREPROCESSING_PIPELINE is not None:
-                    logging.info(f"\tRunning custom preprocessing pipeline")
+                    logging.info(f"\tRunning custom preprocessing pipeline with steps: {list(CUSTOM_PREPROCESSING_PIPELINE.keys())}")
 
                     try:
                         recording_processed = spre.apply_preprocessing_pipeline(recording, CUSTOM_PREPROCESSING_PIPELINE)
