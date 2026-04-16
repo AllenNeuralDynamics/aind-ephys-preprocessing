@@ -597,9 +597,11 @@ if __name__ == "__main__":
                                 recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
 
                         if motion_params["apply"]:
-                            logging.info(f"\tApplying motion correction")
                             recording_processed = recording_corrected
                             recording_bin = recording_bin_corrected
+                            # if motion is applied, the recording is no longer json serializable since
+                            # it contains the motion object which is not json serializable
+                            visualization_file_is_json_serializable = False
                     else:
                         logging.info(f"\tMotion computation failed. Skipping motion correction")
                         preprocessing_notes += "\n- Motion computation failed. Skipping motion correction.\n"
