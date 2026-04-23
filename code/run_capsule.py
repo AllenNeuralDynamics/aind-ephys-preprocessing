@@ -209,8 +209,8 @@ if __name__ == "__main__":
     N_JOBS = args.static_n_jobs or args.n_jobs
     N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
 
-    # Use CO_CPUS/SLURM_CPUS_ON_NODE env variable if available
-    N_JOBS_EXT = os.getenv("CO_CPUS") or os.getenv("SLURM_CPUS_ON_NODE") or os.getenv("SLURM_CPUS_PER_TASK")
+    # Use CO_CPUS/N_JOBS_EXT env variable if available
+    N_JOBS_EXT = os.getenv("CO_CPUS") or os.getenv("N_JOBS_EXT")
     N_JOBS = int(N_JOBS_EXT) if N_JOBS_EXT is not None else N_JOBS
 
     # setup AIND logging before any other logging call
@@ -569,9 +569,11 @@ if __name__ == "__main__":
                                     recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
 
                             if motion_params["apply"]:
-                                logging.info(f"\tApplying motion correction")
                                 recording_processed = recording_corrected
                                 recording_bin = recording_bin_corrected
+                                # if motion is applied, the recording is no longer json serializable since
+                                # it contains the motion object which is not json serializable
+                                visualization_file_is_json_serializable = False
                         else:
                             logging.info(f"\tMotion computation failed. Skipping motion correction")
                             preprocessing_notes += "\n- Motion computation failed. Skipping motion correction.\n"
