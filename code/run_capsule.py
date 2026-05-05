@@ -425,7 +425,7 @@ if __name__ == "__main__":
                     except Exception as e:
                         pipeline_keys = list(preprocessing_pipeline.keys())
                         logging.info(
-                            f"\tApplication of preprocessing pipeline failed:\n\t{e}. "
+                            f"\tApplication of preprocessing pipeline failed with error:{e}.\n"
                             f"\tRemoving last step {pipeline_keys[-1]} and trying again."
                         )
                         preprocessing_pipeline.popitem()
