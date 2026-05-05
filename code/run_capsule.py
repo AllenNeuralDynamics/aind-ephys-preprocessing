@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 # SPIKEINTERFACE
 import spikeinterface as si
 import spikeinterface.preprocessing as spre
+from spikeinterface.preprocessing import DetectAndRemoveBadChannels
 
 from spikeinterface.core.core_tools import check_json
 
@@ -201,6 +202,12 @@ if __name__ == "__main__":
         APPLY_MOTION = True if motion_arg == "apply" else False
         MIN_DURATION_FOR_PREPROCESSING = args.static_min_duration_for_preprocessing or args.min_duration_for_preprocessing
 
+    DEFAULT_PREPROCESSING_PIPELINE = preprocessing_params.pop("default_preprocessing_pipeline", None)
+    assert DEFAULT_PREPROCESSING_PIPELINE is not None or CUSTOM_PREPROCESSING_PIPELINE is not None, (
+        "At least one of default_preprocessing_pipeline or custom_preprocessing_pipeline must be provided "
+        "in the parameters"
+    )
+
     T_START = args.static_t_start or args.t_start
     if isinstance(T_START, str) and T_START == "":
         T_START = None
@@ -248,10 +255,13 @@ if __name__ == "__main__":
         logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(message)s")
 
     logging.info(f"Running preprocessing with the following parameters:")
-    logging.info(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
-    logging.info(f"\tFILTER TYPE: {FILTER_TYPE}")
-    logging.info(f"\tREMOVE_OUT_CHANNELS: {REMOVE_OUT_CHANNELS}")
-    logging.info(f"\tREMOVE_BAD_CHANNELS: {REMOVE_BAD_CHANNELS}")
+    if CUSTOM_PREPROCESSING_PIPELINE is None:
+        logging.info(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
+        logging.info(f"\tFILTER TYPE: {FILTER_TYPE}")
+        logging.info(f"\tREMOVE_OUT_CHANNELS: {REMOVE_OUT_CHANNELS}")
+        logging.info(f"\tREMOVE_BAD_CHANNELS: {REMOVE_BAD_CHANNELS}")
+    else:
+        logging.info(f"\tCUSTOM_PREPROCESSING_PIPELINE: {CUSTOM_PREPROCESSING_PIPELINE}")
     logging.info(f"\tMAX BAD CHANNEL FRACTION: {MAX_BAD_CHANNEL_FRACTION}")
     logging.info(f"\tCOMPUTE_MOTION: {COMPUTE_MOTION}")
     logging.info(f"\tAPPLY_MOTION: {APPLY_MOTION}")
@@ -360,7 +370,6 @@ if __name__ == "__main__":
             if not recording.check_serializability("json"):
                 visualization_file_is_json_serializable = False
 
-
             if recording.get_total_duration() < MIN_DURATION_FOR_PREPROCESSING and not debug:
                 logging.info(f"\tRecording is too short ({recording.get_total_duration()}s). Skipping further processing")
                 preprocessing_notes += (
@@ -370,127 +379,103 @@ if __name__ == "__main__":
                 skip_processing = True
                 skip_reason = "Recording too short"
             else:
+                num_channels_before = recording.get_num_channels()
                 if CUSTOM_PREPROCESSING_PIPELINE is not None:
                     logging.info(f"\tRunning custom preprocessing pipeline with steps: {list(CUSTOM_PREPROCESSING_PIPELINE.keys())}")
 
-                    try:
-                        recording_processed = spre.apply_preprocessing_pipeline(recording, CUSTOM_PREPROCESSING_PIPELINE)
-                    except Exception as e:
-                        logging.info(f"\tCustom preprocessing pipeline failed: {e}. Skipping preprocessing for this recording.")
-                        skip_processing = True
-                        skip_reason = f"Custom preprocessing pipeline failed: {e}"
-                    channel_labels = None
-                    # populate visualization data for each step of the custom pipeline
-                    for step_name in CUSTOM_PREPROCESSING_PIPELINE.keys():
-                        num_parents = len(CUSTOM_PREPROCESSING_PIPELINE) - list(CUSTOM_PREPROCESSING_PIPELINE.keys()).index(step_name) - 1
-                        logging.info(f"\tAdding visualization data for step {step_name} with {num_parents} parents")
-                        step_recording = recording_processed
-                        for i in range(num_parents):
-                            step_recording = step_recording.get_parent()
-                        preprocessing_visualization_data[recording_name]["timeseries"]["full"][step_name] = (
-                            step_recording.to_dict(relative_to=data_folder, recursive=True)
-                        )
+                    preprocessing_pipeline = CUSTOM_PREPROCESSING_PIPELINE
                 else:
-                    # Using default steps of the preprocessing pipeline 
-                    # (phase shift, filtering, bad channel detection, CMR, interpolation, spatial highpass)
-                    if "inter_sample_shift" in recording.get_property_keys():
-                        recording_ps_full = spre.phase_shift(recording, **preprocessing_params["phase_shift"])
-                        preprocessing_visualization_data[recording_name]["timeseries"]["full"].update(
-                            dict(phase_shift=recording_ps_full.to_dict(relative_to=data_folder, recursive=True))
-                        )
-                    else:
-                        recording_ps_full = recording
+                    # Using default steps of the preprocessing pipeline
+                    preprocessing_pipeline = DEFAULT_PREPROCESSING_PIPELINE.copy()
+                    # Remove phase_shift if inter_sample_shift is not available, since it relies on it
+                    if "inter_sample_shift" not in recording.get_property_keys():
+                        preprocessing_pipeline.pop("phase_shift", None)
 
+                    # Select filtering type and remove the other from the default pipeline
                     if FILTER_TYPE == "highpass":
-                        recording_filt_full = spre.highpass_filter(recording_ps_full, **preprocessing_params["highpass_filter"])
-                        preprocessing_visualization_data[recording_name]["timeseries"]["full"].update(
-                            dict(highpass=recording_filt_full.to_dict(relative_to=data_folder, recursive=True))
-                        )
-                        preprocessing_params["filter_type"] = "highpass"
+                        preprocessing_pipeline.pop("bandpass_filter", None)
                     elif FILTER_TYPE == "bandpass":
-                        recording_filt_full = spre.bandpass_filter(recording_ps_full, **preprocessing_params["bandpass_filter"])
-                        preprocessing_visualization_data[recording_name]["timeseries"]["full"].update(
-                            dict(bandpass=recording_filt_full.to_dict(relative_to=data_folder, recursive=True))
-                        )
-                        preprocessing_params["filter_type"] = "bandpass"
+                        preprocessing_pipeline.pop("highpass_filter", None)
                     else:
                         raise ValueError(f"Filter type {FILTER_TYPE} not recognized")
 
-                    # IBL bad channel detection
-                    _, channel_labels = spre.detect_bad_channels(
-                        recording_filt_full, **preprocessing_params["detect_bad_channels"]
+                    # Modify channel_filters based on REMOVE_OUT_CHANNELS and REMOVE_BAD_CHANNELS
+                    if not REMOVE_OUT_CHANNELS:
+                        preprocessing_pipeline["detect_and_remove_bad_channels"]["channel_filters"].remove("out")
+                    if not REMOVE_BAD_CHANNELS:
+                        preprocessing_pipeline["detect_and_remove_bad_channels"]["channel_filters"].remove("dead")
+                        preprocessing_pipeline["detect_and_remove_bad_channels"]["channel_filters"].remove("noise")
+
+                    # Select denoising strategy
+                    if DENOISING_STRATEGY == "cmr":
+                        preprocessing_pipeline.pop("highpass_spatial_filter", None)
+                    elif DENOISING_STRATEGY == "destripe":
+                        preprocessing_pipeline.pop("common_reference", None)
+                    else:
+                        raise ValueError(f"Denoising strategy {DENOISING_STRATEGY} not recognized")
+
+                # Apply preprocessing pipeline: to make it more robust, in case of failure we remove the last step and 
+                # try again, until we are left with an empty pipeline (in which case we skip preprocessing)
+                skip_processing = False
+                while not skip_processing and preprocessing_pipeline:
+                    try:
+                        recording_processed = spre.apply_preprocessing_pipeline(recording, preprocessing_pipeline)
+                        break
+                    except Exception as e:
+                        pipeline_keys = list(preprocessing_pipeline.keys())
+                        logging.info(
+                            f"\tApplication of preprocessing pipeline failed:\n\t{e}. "
+                            f"\tRemoving last step {pipeline_keys[-1]} and trying again."
+                        )
+                        preprocessing_pipeline.popitem()
+                else:
+                    logging.info(f"\tAll preprocessing steps failed. Skipping preprocessing for this recording.")
+                    skip_processing = True
+                    skip_reason = f"Application of preprocessing pipeline failed: {e}"
+
+                # Move this later (for both pipelines)
+                channel_labels = None
+                # populate visualization data for each step of the preprocessing pipeline
+                visualization_name = "full"
+                for step_name in preprocessing_pipeline.keys():
+                    num_parents = len(preprocessing_pipeline) - list(preprocessing_pipeline.keys()).index(step_name) - 1
+                    logging.info(f"\tAdding visualization data for step {step_name} with {num_parents} parents")
+                    step_recording = recording_processed
+                    for i in range(num_parents):
+                        step_recording = step_recording.get_parent()
+
+                    if step_name == "detect_and_remove_bad_channels":
+                        # grab channel_labels from the bad channel detection step if available
+                        channel_labels = step_recording._kwargs.get("channel_labels", None)
+                        # add new visualization with denoised channels and removal
+                        visualization_name = "proc"
+
+                    if preprocessing_visualization_data[recording_name]["timeseries"][visualization_name] is None:
+                        preprocessing_visualization_data[recording_name]["timeseries"][visualization_name] = dict()
+
+                    preprocessing_visualization_data[recording_name]["timeseries"][visualization_name][step_name] = (
+                        step_recording.to_dict(relative_to=data_folder, recursive=True)
                     )
-                    dead_channel_mask = channel_labels == "dead"
-                    noise_channel_mask = channel_labels == "noise"
-                    out_channel_mask = channel_labels == "out"
+
+                num_channels_after = recording_processed.get_num_channels()
+                # Log channel labels if available
+                if channel_labels is not None:
+                    labels, counts = np.unique(channel_labels, return_counts=True)
                     logging.info(f"\tBad channel detection:")
-                    logging.info(
-                        f"\t\t- dead channels - {np.sum(dead_channel_mask)}\n\t\t- noise channels - {np.sum(noise_channel_mask)}\n\t\t- out channels - {np.sum(out_channel_mask)}"
-                    )
-                    dead_channel_ids = recording_filt_full.channel_ids[dead_channel_mask]
-                    noise_channel_ids = recording_filt_full.channel_ids[noise_channel_mask]
-                    out_channel_ids = recording_filt_full.channel_ids[out_channel_mask]
+                    for label, count in zip(labels, counts):
+                        logging.info(f"\t\t{label} channels: {count}")
 
-                    all_bad_channel_ids = np.concatenate((dead_channel_ids, noise_channel_ids, out_channel_ids))
-
-                    skip_processing = False
-                    max_bad_channel_fraction = preprocessing_params["max_bad_channel_fraction"]
-                    if len(all_bad_channel_ids) >= int(max_bad_channel_fraction * recording.get_num_channels()):
-                        logging.info(f"\tMore than {max_bad_channel_fraction * 100}% bad channels ({len(all_bad_channel_ids)}). ")
-                        preprocessing_notes += f"\n- Found {len(all_bad_channel_ids)} bad channels."
-                        if preprocessing_params["remove_bad_channels"]:
-                            skip_processing = True
-                            skip_reason = "Too many bad channels"
-                            logging.info("\tSkipping further processing for this recording.")
-                            preprocessing_notes += f" Skipping further processing for this recording.\n"
-                        else:
-                            preprocessing_notes += "\n"
-
-                    if not skip_processing:
-                        if preprocessing_params["remove_out_channels"]:
-                            logging.info(f"\tRemoving {len(out_channel_ids)} out channels")
-                            recording_rm_out = recording_filt_full.remove_channels(out_channel_ids)
-                            preprocessing_notes += f"\n- Removed {len(out_channel_ids)} outside of the brain."
-                        else:
-                            recording_rm_out = recording_filt_full
-
-                        recording_processed_cmr = spre.common_reference(
-                            recording_rm_out, **preprocessing_params["common_reference"]
-                        )
-
-                        bad_channel_ids = np.concatenate((dead_channel_ids, noise_channel_ids))
-                        recording_interp = spre.interpolate_bad_channels(recording_rm_out, bad_channel_ids)
-                        # protection against short probes
-                        try:
-                            recording_hp_spatial = spre.highpass_spatial_filter(
-                                recording_interp, **preprocessing_params["highpass_spatial_filter"]
-                            )
-                        except Exception as e:
-                            logging.info(f"\tHighpass spatial filter failed: {e}.")
-                            recording_hp_spatial = None
-                        preprocessing_visualization_data[recording_name]["timeseries"]["proc"] = dict(
-                            highpass=recording_rm_out.to_dict(relative_to=data_folder, recursive=True),
-                            cmr=recording_processed_cmr.to_dict(relative_to=data_folder, recursive=True),
-                        )
-                        if recording_hp_spatial is not None:
-                            preprocessing_visualization_data[recording_name]["timeseries"]["proc"].update(
-                                dict(highpass_spatial=recording_hp_spatial.to_dict(relative_to=data_folder, recursive=True))
-                            )
-
-                        denoising_strategy = preprocessing_params["denoising_strategy"]
-                        if denoising_strategy == "cmr":
-                            recording_processed = recording_processed_cmr
-                        else:
-                            if recording_hp_spatial is not None:
-                                recording_processed = recording_hp_spatial
-                            else:
-                                logging.info(f"\tFalling back to CMR preprocessing since highpass spatial filter failed.")
-                                recording_processed = recording_processed_cmr
-
-                        if preprocessing_params["remove_bad_channels"]:
-                            logging.info(f"\tRemoving {len(bad_channel_ids)} channels after {denoising_strategy} preprocessing")
-                            recording_processed = recording_processed.remove_channels(bad_channel_ids)
-                            preprocessing_notes += f"\n- Removed {len(bad_channel_ids)} bad channels after preprocessing.\n"
+                # Skip further processing if too many bad channels
+                skip_processing = False
+                max_bad_channel_fraction = preprocessing_params["max_bad_channel_fraction"]
+                if num_channels_after < int(max_bad_channel_fraction * num_channels_before):
+                    num_bad_channels = num_channels_before - num_channels_after
+                    logging.info(f"\tMore than {max_bad_channel_fraction * 100}% bad channels ({num_bad_channels}). ")
+                    preprocessing_notes += f"\n- Found {num_bad_channels} bad channels."
+                    skip_processing = True
+                    skip_reason = "Too many bad channels"
+                    logging.info("\tSkipping further processing for this recording.")
+                    preprocessing_notes += f" Skipping further processing for this recording.\n"
 
                 # Saving and motion correction are common to the "standard" and "custom" preprocessing pipelines
                 # save to binary to speed up downstream processing
