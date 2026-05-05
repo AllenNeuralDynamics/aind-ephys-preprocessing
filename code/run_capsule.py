@@ -403,6 +403,9 @@ if __name__ == "__main__":
                     if not REMOVE_BAD_CHANNELS:
                         preprocessing_pipeline["detect_and_remove_bad_channels"]["channel_filters"].remove("dead")
                         preprocessing_pipeline["detect_and_remove_bad_channels"]["channel_filters"].remove("noise")
+                    preprocessing_pipeline["detect_and_remove_bad_channels"]["channel_filters"] = set(
+                        preprocessing_pipeline["detect_and_remove_bad_channels"]["channel_filters"]
+                    )
 
                     # Select denoising strategy
                     if DENOISING_STRATEGY == "cmr":
