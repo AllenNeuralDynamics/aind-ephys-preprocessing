@@ -5,6 +5,9 @@
         "mp_context": "spawn"
     },
     "min_preprocessing_duration": 120,
+    "remove_out_channels": true,
+    "remove_bad_channels": true,
+    "max_bad_channel_fraction": 0.5,
     "default_preprocessing_pipeline": {
         "phase_shift": {
             "margin_ms": 100.0

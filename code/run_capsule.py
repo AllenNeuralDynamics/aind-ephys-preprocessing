@@ -23,8 +23,6 @@ from datetime import datetime, timedelta
 # SPIKEINTERFACE
 import spikeinterface as si
 import spikeinterface.preprocessing as spre
-from spikeinterface.preprocessing import DetectAndRemoveBadChannels
-
 from spikeinterface.core.core_tools import check_json
 
 # AIND
