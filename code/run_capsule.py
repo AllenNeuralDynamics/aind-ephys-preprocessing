@@ -644,7 +644,7 @@ if __name__ == "__main__":
                 process_type=ProcessName.EPHYS_PREPROCESSING,
                 stage=ProcessStage.PROCESSING,
                 name="Ephys preprocessing",
-                experimenters=["Alessio Buccino"],
+                experimenters=["AIND Pipeline"],
                 code=Code(
                     url=URL,
                     version=VERSION, # either release or git commit
