@@ -222,7 +222,8 @@ if __name__ == "__main__":
 
     # setup AIND logging before any other logging call
     ecephys_session_folders = [
-        p for p in data_folder.iterdir() if "ecephys" in p.name.lower() or "behavior" in p.name.lower()
+        p for p in data_folder.iterdir() 
+        if p.is_dir() and "ecephys" in p.name.lower() or "behavior" in p.name.lower() 
     ]
     ecephys_session_folder = None
     aind_log_setup = False
