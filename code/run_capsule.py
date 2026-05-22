@@ -330,6 +330,10 @@ if __name__ == "__main__":
                 logging.info("Resetting recording timestamps")
                 recording.reset_times()
 
+            if recording.get_dtype().kind == "u":
+                logging.info(f"Recording has unsigned integer dtype {recording.get_dtype()}. Converting to signed integer.")
+                recording = spre.unsigned_to_signed(recording)
+
             skip_processing = False
             visualization_file_is_json_serializable = True
 
