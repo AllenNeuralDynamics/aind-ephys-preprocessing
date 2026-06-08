@@ -628,7 +628,7 @@ if __name__ == "__main__":
             if skip_processing:
                 # in this case, processed timeseries will not be visualized
                 preprocessing_visualization_data[recording_name]["timeseries"]["proc"] = None
-                recording_drift = recording_processed
+                recording_drift = recording
                 drift_relative_folder = data_folder
                 # make a dummy file if too many bad channels to skip downstream processing
                 preprocessing_output_folder.mkdir()
