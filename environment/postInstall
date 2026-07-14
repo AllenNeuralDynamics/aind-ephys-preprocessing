@@ -6,3 +6,9 @@ cd spikeinterface
 git checkout bb5e50aa8647d65c695dbe088812045c4f262f06
 pip install .
 cd ..
+
+git clone https://github.com/SpikeInterface/probeinterface.git
+cd probeinterface
+git checkout 0c10fd3c165289a999da764e47cd27617f29961f
+pip install .
+cd ..
