@@ -1,4 +1,4 @@
-# hash:sha256:338893625319668e6db3e9c533f8f85a2348a3daf05f6a254cb14abb337d8cb6
+# hash:sha256:382c9d3a3df17a7bb292b28b5e656abbb1727f89ce728ad7e524a8dbe8afc29f
 ARG REGISTRY_HOST
 FROM $REGISTRY_HOST/codeocean/mambaforge3:24.5.0-0-python3.12.4-ubuntu22.04
 
@@ -15,7 +15,10 @@ RUN pip install -U --no-cache-dir \
     aind-data-schema==2.8.1 \
     aind-log-utils==0.2.3 \
     s3fs==2025.5.1 \
-    scipy==1.17.1 \
     spikeinterface[full]==0.104.7 \
     torch==2.6.0 \
     wavpack-numcodecs==0.2.2
+
+COPY postInstall /
+RUN --mount=type=secret,id=secrets . /run/secrets/secrets \
+    && /postInstall
