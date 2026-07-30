@@ -489,7 +489,23 @@ if __name__ == "__main__":
                     # Saving and motion correction are common to the "standard" and "custom" preprocessing pipelines
                     recording_bin = recording_processed.save(folder=preprocessing_output_folder)
 
-                    # motion correction
+                    # This is used to reload the binary traces downstream
+                    dump_to_json_or_pickle(
+                        recording_bin,
+                        results_folder,
+                        binary_output_filename,
+                        relative_to=results_folder
+                    )
+
+                    # This is to reload the recordings lazily
+                    dump_to_json_or_pickle(
+                        recording_processed,
+                        results_folder,
+                        preprocessing_output_filename,
+                        relative_to=results_folder
+                    )
+
+                    # Motion correction
                     recording_corrected = None
                     recording_bin_corrected = None
                     if motion_params["compute"]:
@@ -598,22 +614,6 @@ if __name__ == "__main__":
                         else:
                             logging.info(f"\tMotion computation failed. Skipping motion correction")
                             preprocessing_notes += "\n- Motion computation failed. Skipping motion correction.\n"
-
-                        # this is used to reload the binary traces downstream
-                        dump_to_json_or_pickle(
-                            recording_bin,
-                            results_folder,
-                            binary_output_filename,
-                            relative_to=results_folder
-                        )
-
-                        # this is to reload the recordings lazily            
-                        dump_to_json_or_pickle(
-                            recording_processed,
-                            results_folder,
-                            preprocessing_output_filename,
-                            relative_to=results_folder
-                        )
 
                         # this is to reload the motion-corrected recording lazily
                         if recording_corrected is not None:     
