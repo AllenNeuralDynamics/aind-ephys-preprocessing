@@ -474,8 +474,8 @@ if __name__ == "__main__":
 
                     # Skip further processing if too many bad channels
                     max_bad_channel_fraction = preprocessing_params["max_bad_channel_fraction"]
-                    if (REMOVE_BAD_CHANNELS or REMOVE_OUT_CHANNELS) and num_channels_after < int(max_bad_channel_fraction * num_channels_before):
-                        num_bad_channels = num_channels_before - num_channels_after
+                    num_bad_channels = num_channels_before - num_channels_after
+                    if (REMOVE_BAD_CHANNELS or REMOVE_OUT_CHANNELS) and num_bad_channels >= int((max_bad_channel_fraction) * num_channels_before):
                         logging.info(f"\tMore than {max_bad_channel_fraction * 100}% bad channels ({num_bad_channels}). ")
                         preprocessing_notes += f"\n- Found {num_bad_channels} bad channels."
                         skip_processing = True
