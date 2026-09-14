@@ -150,7 +150,8 @@ def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
         recording.dump_to_pickle(results_folder / f"{base_name}.pkl", relative_to=relative_to)
 
 
-if __name__ == "__main__":
+def run() -> None:
+    """Entrypoint for the preprocessing capsule."""
     args = parser.parse_args()
 
     PARAMS = args.params
@@ -255,6 +256,7 @@ if __name__ == "__main__":
                 }
             )
 
+    logging.info("Begin processing...", extra={"event_type": "stage_start"})
     logging.info(f"Running preprocessing with the following parameters:")
     if CUSTOM_PREPROCESSING_PIPELINE is None:
         logging.info(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
@@ -693,3 +695,10 @@ if __name__ == "__main__":
         elapsed_time_preprocessing_all = np.round(t_preprocessing_end_all - t_preprocessing_start_all, 2)
 
         logging.info(f"PREPROCESSING time: {elapsed_time_preprocessing_all}s")
+        logging.info(logging.info("Pipeline stage completed", extra={"event_type": "stage_complete"}))
+if __name__ == "__main__":
+    try:
+        run()
+    except Exception as e:
+        logging.exception("Pipeline stage failed", extra={"event_type": "stage_error"})
+        raise
