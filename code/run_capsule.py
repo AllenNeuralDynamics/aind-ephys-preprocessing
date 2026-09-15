@@ -696,6 +696,8 @@ def run() -> None:
 
         logging.info(f"PREPROCESSING time: {elapsed_time_preprocessing_all}s")
         logging.info(logging.info("Pipeline stage completed", extra={"event_type": "stage_complete"}))
+
+
 if __name__ == "__main__":
     try:
         run()
