@@ -30,13 +30,6 @@ from aind_data_schema.core.processing import DataProcess, ProcessStage
 from aind_data_schema.components.identifiers import Code
 from aind_data_schema_models.process_names import ProcessName
 
-try:
-    from aind_log_utils import log
-
-    HAVE_AIND_LOG_UTILS = True
-except ImportError:
-    HAVE_AIND_LOG_UTILS = False
-
 URL = "https://github.com/AllenNeuralDynamics/aind-ephys-preprocessing"
 VERSION = "1.0"
 
@@ -157,7 +150,8 @@ def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
         recording.dump_to_pickle(results_folder / f"{base_name}.pkl", relative_to=relative_to)
 
 
-if __name__ == "__main__":
+def run() -> None:
+    """Entrypoint for the preprocessing capsule."""
     args = parser.parse_args()
 
     PARAMS = args.params
@@ -200,6 +194,7 @@ if __name__ == "__main__":
         APPLY_MOTION = True if motion_arg == "apply" else False
         MIN_DURATION_FOR_PREPROCESSING = args.static_min_duration_for_preprocessing or args.min_duration_for_preprocessing
 
+    LOGGING = preprocessing_params.pop("logging", None)
     DEFAULT_PREPROCESSING_PIPELINE = preprocessing_params.pop("default_preprocessing_pipeline", None)
     assert DEFAULT_PREPROCESSING_PIPELINE is not None or CUSTOM_PREPROCESSING_PIPELINE is not None, (
         "At least one of default_preprocessing_pipeline or custom_preprocessing_pipeline must be provided "
@@ -220,39 +215,48 @@ if __name__ == "__main__":
     N_JOBS_EXT = os.getenv("CO_CPUS") or os.getenv("N_JOBS_EXT")
     N_JOBS = int(N_JOBS_EXT) if N_JOBS_EXT is not None else N_JOBS
 
-    # Setup AIND logging before any other logging call
     ecephys_session_folders = [
-        p for p in data_folder.iterdir() 
-        if p.is_dir() and "ecephys" in p.name.lower() or "behavior" in p.name.lower() 
+        p for p in data_folder.iterdir()
+        if p.is_dir() and "ecephys" in p.name.lower() or "behavior" in p.name.lower()
     ]
     ecephys_session_folder = None
-    aind_log_setup = False
     if len(ecephys_session_folders) == 1:
         ecephys_session_folder = ecephys_session_folders[0]
-        if HAVE_AIND_LOG_UTILS:
-            # look for subject.json and data_description.json files
-            subject_json = ecephys_session_folder / "subject.json"
-            subject_id = "undefined"
-            if subject_json.is_file():
-                subject_data = json.load(open(subject_json, "r"))
-                subject_id = subject_data["subject_id"]
 
-            data_description_json = ecephys_session_folder / "data_description.json"
-            session_name = "undefined"
-            if data_description_json.is_file():
-                data_description = json.load(open(data_description_json, "r"))
-                session_name = data_description["name"]
+    # setup logging before any other logging call
+    if LOGGING is None:
+        logging.basicConfig(level="INFO", stream=sys.stdout, format="%(message)s")
+    else:
+        if LOGGING["package"] == "logging":
+            logging_cfg = LOGGING.get("logging_cfg", {})
+            logging.basicConfig(stream=sys.stdout, **logging_cfg)
+        elif LOGGING["package"] == "log-schema":
+            import log_schema
 
-            log.setup_logging(
-                "Preprocess Ecephys",
-                subject_id=subject_id,
-                asset_name=session_name,
+            pipeline_name = LOGGING.get("pipeline_name", "AIND Ephys Pipeline")
+            acquisition_name = LOGGING.get("acquisition_name", None)
+
+            if acquisition_name is None:
+                data_description_json = list(data_folder.glob("**/data_description.json"))
+                if len(data_description_json) > 0:
+                    data_description_json = data_description_json[0]
+                    with open(data_description_json, "r") as f:
+                        data_description = json.load(f)
+                    acquisition_name = data_description["name"]
+
+            config = LOGGING.get("logging_cfg")
+            if config is not None and len(config) == 0:
+                config = None
+            log_schema.setup_logging(
+                config=config,
+                model={
+                    "pipeline_name": pipeline_name,
+                    "acquisition_name": acquisition_name,
+                    "process_name": "Preprocessing"
+                }
             )
-            aind_log_setup = True
 
-    if not aind_log_setup:
-        logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(message)s")
-
+    logging.info("Begin processing...", extra={"event_type": "stage_start"})
     logging.info(f"Running preprocessing with the following parameters:")
     if CUSTOM_PREPROCESSING_PIPELINE is None:
         logging.info(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
@@ -691,3 +695,12 @@ if __name__ == "__main__":
         elapsed_time_preprocessing_all = np.round(t_preprocessing_end_all - t_preprocessing_start_all, 2)
 
         logging.info(f"PREPROCESSING time: {elapsed_time_preprocessing_all}s")
+        logging.info(logging.info("Pipeline stage completed", extra={"event_type": "stage_complete"}))
+
+
+if __name__ == "__main__":
+    try:
+        run()
+    except Exception as e:
+        logging.exception("Pipeline stage failed", extra={"event_type": "stage_error"})
+        raise
