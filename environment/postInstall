@@ -1,14 +1,4 @@
 #!/usr/bin/env bash
 set -e
 
-git clone https://github.com/alejoe91/spikeinterface.git
-cd spikeinterface
-git checkout d166d518dac8cf55a2c1f7d0926d17f9c6e37876
-pip install .
-cd ..
-
-git clone https://github.com/SpikeInterface/probeinterface.git
-cd probeinterface
-git checkout 0c10fd3c165289a999da764e47cd27617f29961f
-pip install .
-cd ..
+pip install git+https://github.com/SpikeInterface/spikeinterface.git@10a6e750462b25f5dec42c247b47a3ac449c3d61
