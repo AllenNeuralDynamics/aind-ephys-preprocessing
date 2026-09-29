@@ -25,11 +25,14 @@ from datetime import datetime, timedelta
 import spikeinterface as si
 import spikeinterface.extractors as se
 import spikeinterface.preprocessing as spre
-
-from spikeinterface.core.core_tools import check_json
+from spikeinterface.core.base import base_period_dtype
+from spikeinterface.core.core_tools import check_json, ms_to_samples
+from spikeinterface.preprocessing.detect_artifacts import _collapse_events
 
 # AIND
-from aind_data_schema.core.processing import DataProcess
+from aind_data_schema.core.processing import DataProcess, ProcessStage
+from aind_data_schema.components.identifiers import Code
+from aind_data_schema_models.process_names import ProcessName
 
 try:
     from aind_log_utils import log
@@ -103,6 +106,17 @@ motion_preset_group.add_argument(
 )
 motion_preset_group.add_argument("static_motion_preset", nargs="?", default=None, help=motion_preset_help)
 
+motion_temporal_bin_s_group = parser.add_mutually_exclusive_group()
+motion_temporal_bin_s_help = (
+    ""
+)
+motion_temporal_bin_s_group.add_argument(
+    "--motion-temporal-bin-s", default=1, help=motion_temporal_bin_s_help
+)
+motion_temporal_bin_s_group.add_argument(
+    "static_motion_temporal_bin_s", nargs="?", default=None, help=motion_temporal_bin_s_help
+)
+
 t_start_group = parser.add_mutually_exclusive_group()
 t_start_help = (
     "Start time of the recording in seconds (assumes recording starts at 0). "
@@ -128,6 +142,13 @@ min_duration_help = (
 min_duration_group.add_argument("static_min_duration_for_preprocessing", nargs="?", default=None, help=min_duration_help)
 min_duration_group.add_argument("--min-duration-for-preprocessing", default=None, help=min_duration_help)
 
+nidq_channels_group = parser.add_mutually_exclusive_group()
+nidq_channels_help = (
+    "NI-DAQ channels to be used for preprocessing, comma-separated. E.g. AI0,AI4"
+)
+nidq_channels_group.add_argument("static_nidq_channels", nargs="?", default=None, help=nidq_channels_help)
+nidq_channels_group.add_argument("--nidq-channels", default=None, help=nidq_channels_help)
+
 n_jobs_group = parser.add_mutually_exclusive_group()
 n_jobs_help = (
     "Number of jobs to use for parallel processing. Default is -1 (all available cores). "
@@ -136,11 +157,7 @@ n_jobs_help = (
 n_jobs_group.add_argument("static_n_jobs", nargs="?", default=None, help=n_jobs_help)
 n_jobs_group.add_argument("--n-jobs", default="-1", help=n_jobs_help)
 
-params_group = parser.add_mutually_exclusive_group()
-params_file_help = "Optional json file with parameters"
-params_group.add_argument("static_params_file", nargs="?", default=None, help=params_file_help)
-params_group.add_argument("--params-file", default=None, help=params_file_help)
-params_group.add_argument("--params-str", default=None, help="Optional json string with parameters")
+parser.add_argument("--params", default=None, help="Path to the parameters file or JSON string. If given, it will override all other arguments.")
 
 
 
@@ -154,35 +171,74 @@ def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
 if __name__ == "__main__":
     args = parser.parse_args()
 
-    DENOISING_STRATEGY = args.denoising or args.static_denoising
-    FILTER_TYPE = args.filter_type or args.static_filter_type
-    REMOVE_OUT_CHANNELS = False if args.no_remove_out_channels else args.static_remove_out_channels == "true"
-    REMOVE_BAD_CHANNELS = False if args.no_remove_bad_channels else args.static_remove_bad_channels == "true"
-    MAX_BAD_CHANNEL_FRACTION = float(args.static_max_bad_channel_fraction or args.max_bad_channel_fraction)
-    motion_arg = args.motion or args.static_motion
-    MOTION_PRESET = args.static_motion_preset or args.motion_preset
-    COMPUTE_MOTION = True if motion_arg != "skip" else False
-    APPLY_MOTION = True if motion_arg == "apply" else False
+    PARAMS = args.params
+    if PARAMS is not None:
+        try:
+            # Try to parse the JSON string first to avoid file name too long error
+            preprocessing_params = json.loads(PARAMS)
+        except json.JSONDecodeError:
+            if Path(PARAMS).is_file():
+                with open(PARAMS, "r") as f:
+                    preprocessing_params = json.load(f)
+            else:
+                raise ValueError(f"Invalid parameters: {PARAMS} is not a valid JSON string or file path")
+
+        CUSTOM_PREPROCESSING_PIPELINE = preprocessing_params.pop("custom_preprocessing_pipeline", None)
+        DENOISING_STRATEGY = preprocessing_params.pop("denoising_strategy", "cmr")
+        FILTER_TYPE = preprocessing_params.pop("filter_type", "highpass")
+        REMOVE_OUT_CHANNELS = preprocessing_params.pop("remove_out_channels", False)
+        REMOVE_BAD_CHANNELS = preprocessing_params.pop("remove_bad_channels", False)
+        MAX_BAD_CHANNEL_FRACTION = preprocessing_params.pop("max_bad_channel_fraction", 0.5)
+        MIN_DURATION_FOR_PREPROCESSING = preprocessing_params.pop("min_preprocessing_duration", 120)
+        motion_params = preprocessing_params.get("motion_correction", None)
+        MOTION_PRESET = motion_params.pop("preset", None)
+        MOTION_TEMPORAL_BIN_S = motion_params.pop("temporal_bin_s", 1)
+        COMPUTE_MOTION = motion_params.pop("compute", True)
+        APPLY_MOTION = motion_params.pop("apply", False)
+        NIDQ_CHANNELS = preprocessing_params.pop("nidq_channels", None)
+    else:
+        with open("params.json", "r") as f:
+            preprocessing_params = json.load(f)
+        CUSTOM_PREPROCESSING_PIPELINE = None  # flexible preprocessing only available passing a params file or JSON string
+        DENOISING_STRATEGY = args.denoising or args.static_denoising
+        FILTER_TYPE = args.filter_type or args.static_filter_type
+        REMOVE_OUT_CHANNELS = False if args.no_remove_out_channels else args.static_remove_out_channels == "true"
+        REMOVE_BAD_CHANNELS = False if args.no_remove_bad_channels else args.static_remove_bad_channels == "true"
+        MAX_BAD_CHANNEL_FRACTION = float(args.static_max_bad_channel_fraction or args.max_bad_channel_fraction)
+        motion_arg = args.motion or args.static_motion
+        MOTION_PRESET = args.static_motion_preset or args.motion_preset
+        MOTION_TEMPORAL_BIN_S = float(args.static_motion_temporal_bin_s or args.motion_temporal_bin_s)
+        COMPUTE_MOTION = True if motion_arg != "skip" else False
+        APPLY_MOTION = True if motion_arg == "apply" else False
+        MIN_DURATION_FOR_PREPROCESSING = args.static_min_duration_for_preprocessing or args.min_duration_for_preprocessing
+        NIDQ_CHANNELS = args.static_nidq_channels or args.nidq_channels
+        if NIDQ_CHANNELS is not None and NIDQ_CHANNELS == "":
+            NIDQ_CHANNELS = None
+
+    DEFAULT_PREPROCESSING_PIPELINE = preprocessing_params.pop("default_preprocessing_pipeline", None)
+    assert DEFAULT_PREPROCESSING_PIPELINE is not None or CUSTOM_PREPROCESSING_PIPELINE is not None, (
+        "At least one of default_preprocessing_pipeline or custom_preprocessing_pipeline must be provided "
+        "in the parameters"
+    )
+
     T_START = args.static_t_start or args.t_start
     if isinstance(T_START, str) and T_START == "":
         T_START = None
     T_STOP = args.static_t_stop or args.t_stop
     if isinstance(T_STOP, str) and T_STOP == "":
         T_STOP = None
-    MIN_DURATION_FOR_PREPROCESSING = args.static_min_duration_for_preprocessing or args.min_duration_for_preprocessing
 
     N_JOBS = args.static_n_jobs or args.n_jobs
     N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
-    PARAMS_FILE = args.static_params_file or args.params_file
-    PARAMS_STR = args.params_str
 
-    # Use CO_CPUS env variable if available
-    N_JOBS_CO = os.getenv("CO_CPUS")
-    N_JOBS = int(N_JOBS_CO) if N_JOBS_CO is not None else N_JOBS
+    # Use CO_CPUS/N_JOBS_EXT env variable if available
+    N_JOBS_EXT = os.getenv("CO_CPUS") or os.getenv("N_JOBS_EXT")
+    N_JOBS = int(N_JOBS_EXT) if N_JOBS_EXT is not None else N_JOBS
 
-    # setup AIND logging before any other logging call
+    # Setup AIND logging before any other logging call
     ecephys_session_folders = [
-        p for p in data_folder.iterdir() if "ecephys" in p.name.lower() or "behavior" in p.name.lower()
+        p for p in data_folder.iterdir() 
+        if p.is_dir() and "ecephys" in p.name.lower() or "behavior" in p.name.lower() 
     ]
     ecephys_session_folder = None
     aind_log_setup = False
@@ -213,41 +269,35 @@ if __name__ == "__main__":
         logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(message)s")
 
     logging.info(f"Running preprocessing with the following parameters:")
-    logging.info(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
-    logging.info(f"\tFILTER TYPE: {FILTER_TYPE}")
-    logging.info(f"\tREMOVE_OUT_CHANNELS: {REMOVE_OUT_CHANNELS}")
-    logging.info(f"\tREMOVE_BAD_CHANNELS: {REMOVE_BAD_CHANNELS}")
+    if CUSTOM_PREPROCESSING_PIPELINE is None:
+        logging.info(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
+        logging.info(f"\tFILTER TYPE: {FILTER_TYPE}")
+        logging.info(f"\tREMOVE_OUT_CHANNELS: {REMOVE_OUT_CHANNELS}")
+        logging.info(f"\tREMOVE_BAD_CHANNELS: {REMOVE_BAD_CHANNELS}")
+    else:
+        logging.info(f"\tCUSTOM_PREPROCESSING_PIPELINE: {CUSTOM_PREPROCESSING_PIPELINE}")
     logging.info(f"\tMAX BAD CHANNEL FRACTION: {MAX_BAD_CHANNEL_FRACTION}")
     logging.info(f"\tCOMPUTE_MOTION: {COMPUTE_MOTION}")
     logging.info(f"\tAPPLY_MOTION: {APPLY_MOTION}")
     logging.info(f"\tMOTION PRESET: {MOTION_PRESET}")
+    logging.info(f"\tMOTION TEMPORAL BIN S: {MOTION_TEMPORAL_BIN_S}")
     logging.info(f"\tT_START: {T_START}")
     logging.info(f"\tT_STOP: {T_STOP}")
     logging.info(f"\tMIN_DURATION FOR PREPROCESSING: {MIN_DURATION_FOR_PREPROCESSING}")
+    logging.info(f"\tNIDQ_CHANNELS: {NIDQ_CHANNELS}")
     logging.info(f"\tN_JOBS: {N_JOBS}")
-
-    if PARAMS_FILE is not None:
-        logging.info(f"\nUsing custom parameter file: {PARAMS_FILE}")
-        with open(PARAMS_FILE, "r") as f:
-            processing_params = json.load(f)
-    elif PARAMS_STR is not None:
-        processing_params = json.loads(PARAMS_STR)
-    else:
-        with open("params.json", "r") as f:
-            processing_params = json.load(f)
 
     data_process_prefix = "data_process_preprocessing"
 
-    job_kwargs = processing_params["job_kwargs"]
+    job_kwargs = preprocessing_params["job_kwargs"]
     job_kwargs["n_jobs"] = N_JOBS
     si.set_global_job_kwargs(**job_kwargs)
 
-    preprocessing_params = processing_params["preprocessing"]
     preprocessing_params["denoising_strategy"] = DENOISING_STRATEGY
     preprocessing_params["remove_out_channels"] = REMOVE_OUT_CHANNELS
     preprocessing_params["remove_bad_channels"] = REMOVE_BAD_CHANNELS
     preprocessing_params["max_bad_channel_fraction"] = MAX_BAD_CHANNEL_FRACTION
-    motion_params = processing_params["motion_correction"]
+    motion_params = preprocessing_params["motion_correction"]
     motion_params["compute"] = COMPUTE_MOTION
     motion_params["apply"] = APPLY_MOTION
     if MOTION_PRESET is not None:
@@ -256,7 +306,7 @@ if __name__ == "__main__":
         MIN_DURATION_FOR_PREPROCESSING = preprocessing_params["min_preprocessing_duration"]
     MIN_DURATION_FOR_PREPROCESSING = float(MIN_DURATION_FOR_PREPROCESSING)
 
-    # load job files
+    # Load job files
     job_config_files = [p for p in data_folder.iterdir() if (p.suffix == ".json" or p.suffix == ".pickle" or p.suffix == ".pkl") and "job" in p.name]
     logging.info(f"Found {len(job_config_files)} configurations")
 
@@ -264,12 +314,13 @@ if __name__ == "__main__":
         ####### PREPROCESSING #######
         logging.info("\n\nPREPROCESSING")
         t_preprocessing_start_all = time.perf_counter()
-        preprocessing_vizualization_data = {}
+        preprocessing_visualization_data = {}
 
         for job_config_file in job_config_files:
             datetime_start_preproc = datetime.now()
             t_preprocessing_start = time.perf_counter()
             preprocessing_notes = ""
+            skip_reason = None
 
             if job_config_file.suffix == ".json":
                 with open(job_config_file, "r") as f:
@@ -295,10 +346,14 @@ if __name__ == "__main__":
                 logging.info("Resetting recording timestamps")
                 recording.reset_times()
 
-            skip_processing = False
-            vizualization_file_is_json_serializable = True
+            if recording.get_dtype().kind == "u":
+                logging.info(f"Recording has unsigned integer dtype {recording.get_dtype()}. Converting to signed integer.")
+                recording = spre.unsigned_to_signed(recording)
 
-            preprocessing_vizualization_data[recording_name] = {}
+            skip_processing = False
+            visualization_file_is_json_serializable = True
+
+            preprocessing_visualization_data[recording_name] = {}
             preprocessing_output_process_json = results_folder / f"{data_process_prefix}_{recording_name}.json"
             preprocessing_output_folder = results_folder / f"preprocessed_{recording_name}"
             preprocessingviz_output_filename = f"preprocessedviz_{recording_name}"
@@ -326,35 +381,13 @@ if __name__ == "__main__":
 
             logging.info(f"\tDuration: {np.round(recording.get_total_duration(), 2)} s")
 
-            preprocessing_vizualization_data[recording_name]["timeseries"] = dict()
-            preprocessing_vizualization_data[recording_name]["timeseries"]["full"] = dict(
+            preprocessing_visualization_data[recording_name]["timeseries"] = dict()
+            preprocessing_visualization_data[recording_name]["timeseries"]["full"] = dict(
                 raw=recording.to_dict(relative_to=data_folder, recursive=True)
             )
+            preprocessing_visualization_data[recording_name]["timeseries"]["proc"] = None
             if not recording.check_serializability("json"):
-                vizualization_file_is_json_serializable = False
-            # maybe a recording is from a different source and it doesn't need to be phase shifted
-            if "inter_sample_shift" in recording.get_property_keys():
-                recording_ps_full = spre.phase_shift(recording, **preprocessing_params["phase_shift"])
-                preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
-                    dict(phase_shift=recording_ps_full.to_dict(relative_to=data_folder, recursive=True))
-                )
-            else:
-                recording_ps_full = recording
-
-            if FILTER_TYPE == "highpass":
-                recording_filt_full = spre.highpass_filter(recording_ps_full, **preprocessing_params["highpass_filter"])
-                preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
-                    dict(highpass=recording_filt_full.to_dict(relative_to=data_folder, recursive=True))
-                )
-                preprocessing_params["filter_type"] = "highpass"
-            elif FILTER_TYPE == "bandpass":
-                recording_filt_full = spre.bandpass_filter(recording_ps_full, **preprocessing_params["bandpass_filter"])
-                preprocessing_vizualization_data[recording_name]["timeseries"]["full"].update(
-                    dict(bandpass=recording_filt_full.to_dict(relative_to=data_folder, recursive=True))
-                )
-                preprocessing_params["filter_type"] = "bandpass"
-            else:
-                raise ValueError(f"Filter type {FILTER_TYPE} not recognized")
+                visualization_file_is_json_serializable = False
 
             if recording.get_total_duration() < MIN_DURATION_FOR_PREPROCESSING and not debug:
                 logging.info(f"\tRecording is too short ({recording.get_total_duration()}s). Skipping further processing")
@@ -363,81 +396,119 @@ if __name__ == "__main__":
                 )
                 channel_labels = None
                 skip_processing = True
-            else:
-                # IBL bad channel detection
-                _, channel_labels = spre.detect_bad_channels(
-                    recording_filt_full, **preprocessing_params["detect_bad_channels"]
-                )
-                dead_channel_mask = channel_labels == "dead"
-                noise_channel_mask = channel_labels == "noise"
-                out_channel_mask = channel_labels == "out"
-                logging.info(f"\tBad channel detection:")
-                logging.info(
-                    f"\t\t- dead channels - {np.sum(dead_channel_mask)}\n\t\t- noise channels - {np.sum(noise_channel_mask)}\n\t\t- out channels - {np.sum(out_channel_mask)}"
-                )
-                dead_channel_ids = recording_filt_full.channel_ids[dead_channel_mask]
-                noise_channel_ids = recording_filt_full.channel_ids[noise_channel_mask]
-                out_channel_ids = recording_filt_full.channel_ids[out_channel_mask]
+                skip_reason = "Recording too short"
 
-                all_bad_channel_ids = np.concatenate((dead_channel_ids, noise_channel_ids, out_channel_ids))
+            # Proceed with preprocessing pipeline
+            if not skip_processing:
+                num_channels_before = recording.get_num_channels()
+                if CUSTOM_PREPROCESSING_PIPELINE is not None:
+                    logging.info(f"\tRunning custom preprocessing pipeline with steps: {list(CUSTOM_PREPROCESSING_PIPELINE.keys())}")
 
-                skip_processing = False
-                max_bad_channel_fraction = preprocessing_params["max_bad_channel_fraction"]
-                if len(all_bad_channel_ids) >= int(max_bad_channel_fraction * recording.get_num_channels()):
-                    logging.info(f"\tMore than {max_bad_channel_fraction * 100}% bad channels ({len(all_bad_channel_ids)}). ")
-                    preprocessing_notes += f"\n- Found {len(all_bad_channel_ids)} bad channels."
-                    if preprocessing_params["remove_bad_channels"]:
+                    preprocessing_pipeline = CUSTOM_PREPROCESSING_PIPELINE
+                else:
+                    # Using default steps of the preprocessing pipeline
+                    preprocessing_pipeline = DEFAULT_PREPROCESSING_PIPELINE.copy()
+                    # Remove phase_shift if inter_sample_shift is not available, since it relies on it
+                    if "inter_sample_shift" not in recording.get_property_keys():
+                        preprocessing_pipeline.pop("phase_shift", None)
+
+                    # Select filtering type and remove the other from the default pipeline
+                    if FILTER_TYPE == "highpass":
+                        preprocessing_pipeline.pop("bandpass_filter", None)
+                    elif FILTER_TYPE == "bandpass":
+                        preprocessing_pipeline.pop("highpass_filter", None)
+                    else:
+                        raise ValueError(f"Filter type {FILTER_TYPE} not recognized")
+
+                    # Modify channel_filters based on REMOVE_OUT_CHANNELS and REMOVE_BAD_CHANNELS
+                    channel_filters = preprocessing_pipeline["detect_and_remove_bad_channels"]["channel_filters"]
+                    if not REMOVE_OUT_CHANNELS:
+                        channel_filters.remove("out")
+                    if not REMOVE_BAD_CHANNELS:
+                        channel_filters.remove("dead")
+                        channel_filters.remove("noise")
+                    preprocessing_pipeline["detect_and_remove_bad_channels"]["channel_filters"] = set(channel_filters)
+
+                    # Select denoising strategy
+                    if DENOISING_STRATEGY == "cmr":
+                        preprocessing_pipeline.pop("highpass_spatial_filter", None)
+                    elif DENOISING_STRATEGY == "destripe":
+                        preprocessing_pipeline.pop("common_reference", None)
+                    else:
+                        raise ValueError(f"Denoising strategy {DENOISING_STRATEGY} not recognized")
+
+                # Apply preprocessing pipeline: to make it more robust, in case of failure we remove the last step and 
+                # try again, until we are left with an empty pipeline (in which case we skip preprocessing)
+                while not skip_processing and preprocessing_pipeline:
+                    try:
+                        recording_processed = spre.apply_preprocessing_pipeline(recording, preprocessing_pipeline)
+                        break
+                    except Exception as e:
+                        pipeline_keys = list(preprocessing_pipeline.keys())
+                        logging.info(
+                            f"\tApplication of preprocessing pipeline failed with error:{e}.\n"
+                            f"\tRemoving last step {pipeline_keys[-1]} and trying again."
+                        )
+                        preprocessing_pipeline.popitem()
+                else:
+                    logging.info(f"\tAll preprocessing steps failed. Skipping preprocessing for this recording.")
+                    skip_processing = True
+                    skip_reason = f"Application of preprocessing pipeline failed: {e}"
+
+                # Proceed with preprocessing if any step succeeded
+                if not skip_processing:
+                    channel_labels = None
+                    # Populate visualization data for each step of the preprocessing pipeline
+                    visualization_name = "full"
+                    for step_name in preprocessing_pipeline.keys():
+                        num_parents = len(preprocessing_pipeline) - list(preprocessing_pipeline.keys()).index(step_name) - 1
+                        logging.info(f"\tAdding visualization data for step {step_name} with {num_parents} parents")
+                        step_recording = recording_processed
+                        for i in range(num_parents):
+                            step_recording = step_recording.get_parent()
+
+                        if step_name == "detect_and_remove_bad_channels":
+                            # grab channel_labels from the bad channel detection step if available
+                            channel_labels = step_recording._kwargs.get("channel_labels", None)
+                            # add new visualization with denoised channels and removal
+                            visualization_name = "proc"
+
+                        if preprocessing_visualization_data[recording_name]["timeseries"][visualization_name] is None:
+                            preprocessing_visualization_data[recording_name]["timeseries"][visualization_name] = dict()
+
+                        preprocessing_visualization_data[recording_name]["timeseries"][visualization_name][step_name] = (
+                            step_recording.to_dict(relative_to=data_folder, recursive=True)
+                        )
+
+                    num_channels_after = recording_processed.get_num_channels()
+                    # Log channel labels if available
+                    if channel_labels is not None:
+                        labels, counts = np.unique(channel_labels, return_counts=True)
+                        logging.info(f"\tBad channel detection:")
+                        for label, count in zip(labels, counts):
+                            logging.info(f"\t\t{label} channels: {count}")
+
+                    # Skip further processing if too many bad channels
+                    max_bad_channel_fraction = preprocessing_params["max_bad_channel_fraction"]
+                    num_bad_channels = num_channels_before - num_channels_after
+                    if (REMOVE_BAD_CHANNELS or REMOVE_OUT_CHANNELS) and num_bad_channels >= int((max_bad_channel_fraction) * num_channels_before):
+                        logging.info(f"\tMore than {max_bad_channel_fraction * 100}% bad channels ({num_bad_channels}). ")
+                        preprocessing_notes += f"\n- Found {num_bad_channels} bad channels."
                         skip_processing = True
+                        skip_reason = "Too many bad channels"
                         logging.info("\tSkipping further processing for this recording.")
                         preprocessing_notes += f" Skipping further processing for this recording.\n"
                     else:
                         preprocessing_notes += "\n"
+
                 if not skip_processing:
-                    if preprocessing_params["remove_out_channels"]:
-                        logging.info(f"\tRemoving {len(out_channel_ids)} out channels")
-                        recording_rm_out = recording_filt_full.remove_channels(out_channel_ids)
-                        preprocessing_notes += f"\n- Removed {len(out_channel_ids)} outside of the brain."
-                    else:
-                        recording_rm_out = recording_filt_full
-
-                    recording_processed_cmr = spre.common_reference(
-                        recording_rm_out, **preprocessing_params["common_reference"]
-                    )
-
-                    bad_channel_ids = np.concatenate((dead_channel_ids, noise_channel_ids))
-                    recording_interp = spre.interpolate_bad_channels(recording_rm_out, bad_channel_ids)
-                    # protection against short probes
-                    try:
-                        recording_hp_spatial = spre.highpass_spatial_filter(
-                            recording_interp, **preprocessing_params["highpass_spatial_filter"]
-                        )
-                    except:
-                        recording_hp_spatial = None
-                    preprocessing_vizualization_data[recording_name]["timeseries"]["proc"] = dict(
-                        highpass=recording_rm_out.to_dict(relative_to=data_folder, recursive=True),
-                        cmr=recording_processed_cmr.to_dict(relative_to=data_folder, recursive=True),
-                    )
-                    if recording_hp_spatial is not None:
-                        preprocessing_vizualization_data[recording_name]["timeseries"]["proc"].update(
-                            dict(highpass_spatial=recording_hp_spatial.to_dict(relative_to=data_folder, recursive=True))
-                        )
-
-                    denoising_strategy = preprocessing_params["denoising_strategy"]
-                    if denoising_strategy == "cmr":
-                        recording_processed = recording_processed_cmr
-                    else:
-                        recording_processed = recording_hp_spatial
-
-                    if preprocessing_params["remove_bad_channels"]:
-                        logging.info(f"\tRemoving {len(bad_channel_ids)} channels after {denoising_strategy} preprocessing")
-                        recording_processed = recording_processed.remove_channels(bad_channel_ids)
-                        preprocessing_notes += f"\n- Removed {len(bad_channel_ids)} bad channels after preprocessing.\n"
-
-                    # remove artifacts
+                    # Remove optical stimulation artifacts
                     if preprocessing_params["apply_remove_artifacts"]:
                         stimulation_trigger_times = []
+                        samples_pre = ms_to_samples(remove_artifact_params["ms_before"], recording.sampling_frequency)
+                        samples_post = ms_to_samples(remove_artifact_params["ms_after"], recording.sampling_frequency)
 
-                        if ecephys_session_folder.is_dir():
+                        if ecephys_session_folder is not None and ecephys_session_folder.is_dir():
                             # Move to its own capsule for flexibility???
                             logging.info(f"\tRemoving optical stimulation artifacts")
                             remove_artifact_params = preprocessing_params["remove_artifacts"]
@@ -449,6 +520,8 @@ if __name__ == "__main__":
                             num_pulses = None
                             inter_pulse_intervals = None
 
+
+                            # Source 1: CSV opto file in Open Ephys folder
                             ecephys_clipped_folders = [p for p in ecephys_session_folder.glob("**/ecephys_clipped")]
                             if len(ecephys_clipped_folders) == 1:
                                 ecephys_folder = ecephys_clipped_folders[0]
@@ -460,6 +533,7 @@ if __name__ == "__main__":
                                     if p.name.endswith("csv") and "opto" in p.name
                                 ]
                                 if len(opto_csv_files) == 1:
+                                    logging.info(f"\tFound opto CSV file. Trying to load artifacts...")
                                     opto_csv_file = opto_csv_files[0]
                                     opto_df = pd.read_csv(opto_csv_file)
 
@@ -481,15 +555,10 @@ if __name__ == "__main__":
                                     else:
                                         logging.info("\tCould not find an event channel with the right number of events!")
                                 else:
-                                    logging.info(f"Found {len(opto_csv_files)} opto CSV files. One CSV file is required.")
+                                    logging.info(f"\tFound {len(opto_csv_files)} opto CSV files. One CSV file is required.")
 
-                            # if no stimulation events are found, look for NIDAQ + CSV
+                            # Source 2: behavior JSON from HARP
                             if len(stimulation_trigger_times) == 0:
-                                logging.info(
-                                    "Couldn't find optogenetics stimulation in behavior NIDAQ. "
-                                    "Looking for events using HRAP behavior file." 
-                                )
-                                # check if HARP system
                                 behavior_folder = None
                                 harp_folders = [p for p in ecephys_session_folder.glob("**/raw.harp")]
                                 if len(harp_folders) == 1:
@@ -502,12 +571,13 @@ if __name__ == "__main__":
                                     if len(behavior_folders) == 1:
                                         behavior_folder = behavior_folders[0]
                                 if behavior_folder is not None:
+                                    logging.info(f"\tFound HARP behavior folder. Trying to load artifacts...")
                                     json_files = [p for p in behavior_folder.iterdir() if p.suffix == ".json"]
                                     behavior_json_file = None
                                     if len(json_files) == 1:
                                         behavior_json_file = json_file = json_files[0]
                                     elif len(json_files) > 1:
-                                        logging.info(f"Found {len(json_files)} JSON files in behavior folder. Determining behavior file by name")
+                                        logging.info(f"\tFound {len(json_files)} JSON files in behavior folder. Determining behavior file by name")
                                         # the JSON file should start with {subject_id}_{date}
                                         if session_name != "undefined":
                                             subject_date_str = "_".join(session_name.split("_")[1:-1])
@@ -535,10 +605,11 @@ if __name__ == "__main__":
                                                 train_durations = behavior_data[f"TP_Duration_{active_laser_id}"]
                                     else:
                                         json_file_names = [f.name for f in json_files]
-                                        logging.info(f"Could not find behavior JSON file among: {json_file_names}")
+                                        logging.info(f"\tCould not find behavior JSON file among: {json_file_names}")
 
                         if len(stimulation_trigger_times) > 0:
                             if recording.get_num_segments() == 1:
+                                # Build trigger events for every rising and falling stimulation edge
                                 all_stimulation_trigger_times = []
                                 for i, st in enumerate(stimulation_trigger_times):
                                     pulse_duration = float(pulse_durations[i])
@@ -562,27 +633,104 @@ if __name__ == "__main__":
                                     recording_processed.get_times(),
                                     all_stimulation_trigger_times,
                                 )
-
-                                recording_processed = spre.remove_artifacts(
-                                    recording_processed,
-                                    list_triggers=evt_triggers_sync,
-                                    ms_before=remove_artifact_params["ms_before"],
-                                    ms_after=remove_artifact_params["ms_after"],
-                                )
-                                logging.info(f"\tFound {len(evt_triggers_sync)} optical stimulation artifacts")
-                                preprocessing_notes += (
-                                    f"\n- Found {len(evt_triggers_sync)} optical stimulation artifacts.\n"
-                                )
+                                triggers_edges = np.zeros(len(evt_triggers_sync), dtype=base_period_dtype)
+                                triggers_edges["start_sample_index"] = evt_triggers_sync - samples_pre
+                                triggers_edges["end_sample_index"] = evt_triggers_sync + samples_post
+                                triggers_edges = _collapse_events(triggers_edges)
                             else:
                                 logging.info("\tArtifact removal not supported for multi-segment recordings.")
+
+                        # Source 3: NIDQ traces
+                        if len(triggers_edges) == 0:
+                            ecephys_compressed = ecephys_session_folders / "ecephys" / "ecephys_compressed"
+                            experiment_node_str = recording_name.split("#")[0]
+                            nidq_stream = [
+                                p for p in ecephys_compressed.iterdir() if "NI-DAQ" in p.name and experiment_node_str in p.name
+                            ]
+                            nidq_file = None
+                            if len(nidq_stream) == 0:
+                                logging.info(f"\tCould not find NI-DAQ stream in: {ecephys_compressed}")
+                            elif len(nidq_stream) == 1:
+                                nidq_file = nidq_stream[0]
+                            else:
+                                logging.info(f"\tFound multiple NI-DAQ streams in: {ecephys_compressed}")
+                            if nidq_file is not None:
+                                logging.info(f"\tUsing NI-DAQ stream: {nidq_file}")
+                                recording_nidq = si.load(nidq_file)
+                                if NIDQ_CHANNELS is None:
+                                    logging.info(f"\tNIDQ_CHANNELS is not specified, using all available channels.")
+                                    nidq_channels = list(recording_nidq.channel_ids)
+                                else:
+                                    nidq_channels = NIDQ_CHANNELS.split(",")
+                                    logging.info(f"\tUsing NIDQ channels: {nidq_channels}")
+                                all_triggers = []
+                                for nidq_channel in nidq_channels:
+                                    logging.info(f"\tProcessing NIDQ channel: {nidq_channel}")
+                                    recording_nidq_sel = recording_nidq.select_channels([nidq_channel])
+                                    triggers = spre.detect_artifact_periods_by_envelope(
+                                        recording_nidq_sel,
+                                        freq_max=remove_artifact_params["freq_max"],
+                                        detect_threshold=remove_artifact_params["detect_threshold"],
+                                    )
+                                    all_triggers.append(triggers)
+                                all_triggers = _collapse_events(np.concatenate(all_triggers))
+                                start_times = recording_nidq.sample_index_to_time(triggers["start_sample_index"])
+                                end_times = recording_nidq.sample_index_to_time(
+                                    np.clip(triggers["end_sample_index"], a_min=0, a_max=recording_nidq.get_num_samples() - 1)
+                                )
+                                recording_times = recording.get_times()
+                                triggers = all_triggers.copy()
+                                triggers["start_sample_index"] = np.searchsorted(recording_times, start_times)
+                                triggers["end_sample_index"] = np.searchsorted(recording_times, end_times)
+
+                                samples_pre = ms_to_samples(remove_artifact_params["ms_before"], recording.sampling_frequency)
+                                samples_post = ms_to_samples(remove_artifact_params["ms_after"], recording.sampling_frequency)
+
+                                triggers_edges = np.zeros(2 * len(triggers), dtype=triggers.dtype)
+                                for i, t in enumerate(triggers):
+                                    triggers_edges[2 * i]["start_sample_index"] = t["start_sample_index"] - samples_pre
+                                    triggers_edges[2 * i]["end_sample_index"] = t["start_sample_index"] + samples_post
+                                    triggers_edges[2 * i + 1]["start_sample_index"] = t["end_sample_index"] - samples_pre
+                                    triggers_edges[2 * i + 1]["end_sample_index"] = t["end_sample_index"] + samples_post
+
+                                triggers_edges = _collapse_events(triggers_edges)
+
+                        if len(triggers_edges) > 0:
+                            recording_processed = spre.silence_artifacts(
+                                recording_processed,
+                                periods=triggers_edges,
+                            )
+                            logging.info(f"\tFound {len(triggers_edges) // 2} optical stimulation artifacts")
+                            preprocessing_notes += (
+                                f"\n- Found {len(triggers_edges) // 2} optical stimulation artifacts.\n"
+                            )
                         else:
                             logging.info(f"\tFound no optical stimulation artifacts")
                             preprocessing_notes += f"\n- Found no optical stimulation artifacts.\n"
 
-                    # save to binary to speed up downstream processing
+                # Proceed with motion correction and saving only if preprocessing succeeded,
+                # otherwise we skip directly to saving the raw recording and motion visualization (if possible)
+                if not skip_processing:
+                    # Saving and motion correction are common to the "standard" and "custom" preprocessing pipelines
                     recording_bin = recording_processed.save(folder=preprocessing_output_folder)
 
-                    # motion correction
+                    # This is used to reload the binary traces downstream
+                    dump_to_json_or_pickle(
+                        recording_bin,
+                        results_folder,
+                        binary_output_filename,
+                        relative_to=results_folder
+                    )
+
+                    # This is to reload the recordings lazily
+                    dump_to_json_or_pickle(
+                        recording_processed,
+                        results_folder,
+                        preprocessing_output_filename,
+                        relative_to=results_folder
+                    )
+
+                    # Motion correction
                     recording_corrected = None
                     recording_bin_corrected = None
                     if motion_params["compute"]:
@@ -595,126 +743,142 @@ if __name__ == "__main__":
                         select_kwargs = motion_params.get("select_kwargs", {})
                         localize_peaks_kwargs = motion_params.get("localize_peaks_kwargs", {})
                         estimate_motion_kwargs = motion_params.get("estimate_motion_kwargs", {})
-                        interpolate_motion_kwargs = motion_params.get("interpolate_motion_kwargs", {})
+
+                        estimate_motion_kwargs["bin_s"] = MOTION_TEMPORAL_BIN_S
+                        logging.info(f"\t\tUsing bin_s: {MOTION_TEMPORAL_BIN_S}")
+
+                        # the win_step_norm/win_scale_norm define the win_step_um/win_scale_um based on the probe_span
+                        probe_span = np.ptp(recording.get_channel_locations()[:, 1])
+                        if "win_step_norm" in estimate_motion_kwargs:
+                            win_step_norm = estimate_motion_kwargs.pop("win_step_norm")
+                        else:
+                            win_step_norm = None
+                        if "win_scale_norm" in estimate_motion_kwargs:
+                            win_scale_norm = estimate_motion_kwargs.pop("win_scale_norm")
+                        else:
+                            win_scale_norm = None
+                        if win_step_norm is not None:
+                            win_step_um = win_step_norm * probe_span
+                            estimate_motion_kwargs["win_step_um"] = win_step_um
+                            logging.info(f"\t\tUsing win_step_um: {win_step_um}")
+                        if win_scale_norm is not None:
+                            win_scale_um = win_scale_norm * probe_span
+                            estimate_motion_kwargs["win_scale_um"] = win_scale_um
+                            logging.info(f"\t\tUsing win_scale_um: {win_scale_um}")
 
                         motion_folder = results_folder / f"motion_{recording_name}"
+                        interpolate_motion_kwargs = motion_params.get("interpolate_motion_kwargs", {})
 
-                        try:
-                            concat_motion = False
-                            if recording_processed.get_num_segments() > 1:
-                                recording_bin_c = si.concatenate_recordings([recording_bin])
-                                recording_processed_c = si.concatenate_recordings([recording_processed])
-                                concat_motion = True
-                            else:
-                                recording_bin_c = recording_bin
-                                recording_processed_c = recording_processed
+                        concat_motion = False
+                        recording_corrected = None
+                        if recording_processed.get_num_segments() > 1:
+                            recording_bin_c = si.concatenate_recordings([recording_bin])
+                            recording_processed_c = si.concatenate_recordings([recording_processed])
+                            concat_motion = True
+                        else:
+                            recording_bin_c = recording_bin
+                            recording_processed_c = recording_processed
 
-                            recording_bin_corrected, motion_info = spre.correct_motion(
-                                recording_bin_c,
-                                preset=preset,
-                                folder=motion_folder,
-                                output_motion_info=True,
-                                detect_kwargs=detect_kwargs,
-                                select_kwargs=select_kwargs,
-                                localize_peaks_kwargs=localize_peaks_kwargs,
-                                estimate_motion_kwargs=estimate_motion_kwargs,
-                                interpolate_motion_kwargs=interpolate_motion_kwargs
-                            )
-                            recording_corrected = interpolate_motion(
-                                recording_processed_c.astype("float32"),
-                                motion=motion_info["motion"],
-                                **interpolate_motion_kwargs
-                            )
-
-                            # split segments back
-                            if concat_motion:
-                                rec_corrected_list = []
-                                rec_corrected_bin_list = []
-                                for segment_index in range(recording_bin.get_num_segments()):
-                                    num_samples = recording_bin.get_num_samples(segment_index)
-                                    if segment_index == 0:
-                                        start_frame = 0
-                                    else:
-                                        start_frame = recording_bin.get_num_samples(segment_index - 1)
-                                    end_frame = start_frame + num_samples
-                                    rec_split_corrected = recording_corrected.frame_slice(
-                                        start_frame=start_frame,
-                                        end_frame=end_frame
-                                    )
-                                    rec_corrected_list.append(rec_split_corrected)
-                                    rec_split_bin = recording_bin_corrected.frame_slice(
-                                        start_frame=start_frame,
-                                        end_frame=end_frame
-                                    )
-                                    rec_corrected_bin_list.append(rec_split_bin)
-                                # append all segments
-                                recording_corrected = si.append_recordings(rec_corrected_list)
-                                recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
-
+                        # use compute motion
+                        motion = spre.compute_motion(
+                            recording_bin_c,
+                            preset=preset,
+                            folder=motion_folder,
+                            detect_kwargs=detect_kwargs,
+                            select_kwargs=select_kwargs,
+                            localize_peaks_kwargs=localize_peaks_kwargs,
+                            estimate_motion_kwargs=estimate_motion_kwargs,
+                            raise_error=False
+                        )
+                        if motion is not None:
+                            logging.info(f"\tMotion computed successfully!")
                             if motion_params["apply"]:
                                 logging.info(f"\tApplying motion correction")
+                                recording_bin_corrected = interpolate_motion(
+                                    recording_bin_c.astype("float32"),
+                                    motion=motion,
+                                    **interpolate_motion_kwargs
+                                )
+                                recording_corrected = interpolate_motion(
+                                    recording_processed_c.astype("float32"),
+                                    motion=motion,
+                                    **interpolate_motion_kwargs
+                                )
+
+                                # split segments back
+                                if concat_motion:
+                                    rec_corrected_list = []
+                                    rec_corrected_bin_list = []
+                                    for segment_index in range(recording_bin.get_num_segments()):
+                                        num_samples = recording_bin.get_num_samples(segment_index)
+                                        if segment_index == 0:
+                                            start_frame = 0
+                                        else:
+                                            start_frame = recording_bin.get_num_samples(segment_index - 1)
+                                        end_frame = start_frame + num_samples
+                                        rec_split_corrected = recording_corrected.frame_slice(
+                                            start_frame=start_frame,
+                                            end_frame=end_frame
+                                        )
+                                        rec_corrected_list.append(rec_split_corrected)
+                                        rec_split_bin = recording_bin_corrected.frame_slice(
+                                            start_frame=start_frame,
+                                            end_frame=end_frame
+                                        )
+                                        rec_corrected_bin_list.append(rec_split_bin)
+                                    # append all segments
+                                    recording_corrected = si.append_recordings(rec_corrected_list)
+                                    recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
+
+                            if motion_params["apply"]:
                                 recording_processed = recording_corrected
                                 recording_bin = recording_bin_corrected
-                        except Exception as e:
-                            logging.info(f"\tMotion correction failed!")
-                            recording_corrected = None
-                            recording_bin_corrected = None
+                                # if motion is applied, the recording is no longer json serializable since
+                                # it contains the motion object which is not json serializable
+                                visualization_file_is_json_serializable = False
+                        else:
+                            logging.info(f"\tMotion computation failed. Skipping motion correction")
+                            preprocessing_notes += "\n- Motion computation failed. Skipping motion correction.\n"
 
-                    # this is used to reload the binary traces downstream
-                    dump_to_json_or_pickle(
-                        recording_bin,
-                        results_folder,
-                        binary_output_filename,
-                        relative_to=results_folder
-                    )
-
-                    # this is to reload the recordings lazily            
-                    dump_to_json_or_pickle(
-                        recording_processed,
-                        results_folder,
-                        preprocessing_output_filename,
-                        relative_to=results_folder
-                    )
-
-                    # this is to reload the motion-corrected recording lazily
-                    if recording_corrected is not None:     
-                        dump_to_json_or_pickle(
-                            recording_corrected,
-                            results_folder,
-                            motioncorrected_output_filename,
-                            relative_to=results_folder
-                        )
+                        # this is to reload the motion-corrected recording lazily
+                        if recording_corrected is not None:     
+                            dump_to_json_or_pickle(
+                                recording_corrected,
+                                results_folder,
+                                motioncorrected_output_filename,
+                                relative_to=results_folder
+                            )
 
                     recording_drift = recording_bin
                     drift_relative_folder = results_folder
 
+            # In case of skipping preprocessing, we still want to save the raw recording and the drift visualization
+            # if possible, so we set those variables here
             if skip_processing:
-                # in this case, processed timeseries will not be visualized
-                preprocessing_vizualization_data[recording_name]["timeseries"]["proc"] = None
-                recording_drift = recording_filt_full
+                preprocessing_visualization_data[recording_name]["timeseries"]["proc"] = None
+                recording_drift = recording
                 drift_relative_folder = data_folder
                 # make a dummy file if too many bad channels to skip downstream processing
                 preprocessing_output_folder.mkdir()
                 error_file = preprocessing_output_folder / "error.txt"
-                error_file.write_text("Too many bad channels")
+                error_file.write_text(skip_reason)
 
-            # store recording for drift visualization
-            preprocessing_vizualization_data[recording_name]["drift"] = dict(
+            # Store recording for drift visualization
+            preprocessing_visualization_data[recording_name]["drift"] = dict(
                 recording=recording_drift.to_dict(relative_to=drift_relative_folder, recursive=True)
             )
 
-            if vizualization_file_is_json_serializable:            
+            if visualization_file_is_json_serializable:            
                 with open(results_folder / f"{preprocessingviz_output_filename}.json", "w") as f:
-                    json.dump(check_json(preprocessing_vizualization_data), f, indent=4)
+                    json.dump(check_json(preprocessing_visualization_data), f, indent=4)
             else:
-                # then dump to pickle
                 with open(results_folder / f"{preprocessingviz_output_filename}.pkl", "wb") as f:
-                    pickle.dump(preprocessing_vizualization_data, f)
+                    pickle.dump(preprocessing_visualization_data, f)
 
             t_preprocessing_end = time.perf_counter()
             elapsed_time_preprocessing = np.round(t_preprocessing_end - t_preprocessing_start, 2)
 
-            # save params in output
+            # Save params in output
             preprocessing_params["recording_name"] = recording_name
             if channel_labels is not None:
                 preprocessing_outputs = dict(
@@ -723,21 +887,25 @@ if __name__ == "__main__":
             else:
                 preprocessing_outputs = dict()
             preprocessing_process = DataProcess(
+                process_type=ProcessName.EPHYS_PREPROCESSING,
+                stage=ProcessStage.PROCESSING,
                 name="Ephys preprocessing",
-                software_version=VERSION,  # either release or git commit
+                experimenters=["AIND Pipeline"],
+                code=Code(
+                    url=URL,
+                    version=VERSION, # either release or git commit
+                    parameters=preprocessing_params
+                ),
                 start_date_time=datetime_start_preproc,
                 end_date_time=datetime_start_preproc + timedelta(seconds=np.floor(elapsed_time_preprocessing)),
-                input_location=str(data_folder),
-                output_location=str(results_folder),
-                code_url=URL,
-                parameters=preprocessing_params,
-                outputs=preprocessing_outputs,
+                output_path=str(results_folder),
+                output_parameters=preprocessing_outputs,
                 notes=preprocessing_notes,
             )
             with open(preprocessing_output_process_json, "w") as f:
                 f.write(preprocessing_process.model_dump_json(indent=3))
 
-            # copy data_description and subject json
+            # Copy data_description and subject json
             if ecephys_session_folder is not None:
                 metadata_json_files = [p for p in ecephys_session_folder.iterdir() if p.suffix == ".json"]
                 for metadata_file in metadata_json_files:
