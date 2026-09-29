@@ -504,14 +504,13 @@ if __name__ == "__main__":
                 if not skip_processing:
                     # Remove optical stimulation artifacts
                     if preprocessing_params["apply_remove_artifacts"]:
-                        stimulation_trigger_times = []
-                        samples_pre = ms_to_samples(remove_artifact_params["ms_before"], recording.sampling_frequency)
-                        samples_post = ms_to_samples(remove_artifact_params["ms_after"], recording.sampling_frequency)
-
                         if ecephys_session_folder is not None and ecephys_session_folder.is_dir():
                             # Move to its own capsule for flexibility???
                             logging.info(f"\tRemoving optical stimulation artifacts")
                             remove_artifact_params = preprocessing_params["remove_artifacts"]
+                            stimulation_trigger_times = []
+                            samples_pre = ms_to_samples(remove_artifact_params["ms_before"], recording.sampling_frequency)
+                            samples_post = ms_to_samples(remove_artifact_params["ms_after"], recording.sampling_frequency)
 
                             # instantiate stimulation variables
                             pulse_durations = None
@@ -616,106 +615,106 @@ if __name__ == "__main__":
                                         json_file_names = [f.name for f in json_files]
                                         logging.info(f"\tCould not find behavior JSON file among: {json_file_names}")
 
-                        if len(stimulation_trigger_times) > 0:
-                            if recording.get_num_segments() == 1:
-                                # Build trigger events for every rising and falling stimulation edge
-                                all_stimulation_trigger_times = []
-                                for i, st in enumerate(stimulation_trigger_times):
-                                    pulse_duration = float(pulse_durations[i])
-                                    if inter_pulse_intervals is not None:
-                                        inter_pulse_interval = inter_pulse_intervals[i]
-                                    else:
-                                        assert pulse_frequencies is not None
-                                        inter_pulse_interval = 1 / float(pulse_frequencies[i])
-                                    if num_pulses is not None:
-                                        n_pulses = num_pulses[i]
-                                    else:
-                                        assert train_durations is not None
-                                        n_pulses = int(float(train_durations[i]) / inter_pulse_interval)
+                            if len(stimulation_trigger_times) > 0:
+                                if recording.get_num_segments() == 1:
+                                    # Build trigger events for every rising and falling stimulation edge
+                                    all_stimulation_trigger_times = []
+                                    for i, st in enumerate(stimulation_trigger_times):
+                                        pulse_duration = float(pulse_durations[i])
+                                        if inter_pulse_intervals is not None:
+                                            inter_pulse_interval = inter_pulse_intervals[i]
+                                        else:
+                                            assert pulse_frequencies is not None
+                                            inter_pulse_interval = 1 / float(pulse_frequencies[i])
+                                        if num_pulses is not None:
+                                            n_pulses = num_pulses[i]
+                                        else:
+                                            assert train_durations is not None
+                                            n_pulses = int(float(train_durations[i]) / inter_pulse_interval)
 
-                                    for i in range(n_pulses):
-                                        all_stimulation_trigger_times.extend(
-                                            [st + i * inter_pulse_interval, st + i * inter_pulse_interval + pulse_duration]
-                                        )
+                                        for i in range(n_pulses):
+                                            all_stimulation_trigger_times.extend(
+                                                [st + i * inter_pulse_interval, st + i * inter_pulse_interval + pulse_duration]
+                                            )
 
-                                evt_triggers_sync = np.searchsorted(
-                                    recording_processed.get_times(),
-                                    all_stimulation_trigger_times,
-                                )
-                                triggers_edges = np.zeros(len(evt_triggers_sync), dtype=base_period_dtype)
-                                triggers_edges["start_sample_index"] = evt_triggers_sync - samples_pre
-                                triggers_edges["end_sample_index"] = evt_triggers_sync + samples_post
-                                triggers_edges = _collapse_events(triggers_edges)
-                            else:
-                                logging.info("\tArtifact removal not supported for multi-segment recordings.")
-
-                        # Source 3: NIDQ traces
-                        if len(triggers_edges) == 0:
-                            ecephys_compressed = ecephys_session_folders / "ecephys" / "ecephys_compressed"
-                            experiment_node_str = recording_name.split("#")[0]
-                            nidq_stream = [
-                                p for p in ecephys_compressed.iterdir() if "NI-DAQ" in p.name and experiment_node_str in p.name
-                            ]
-                            nidq_file = None
-                            if len(nidq_stream) == 0:
-                                logging.info(f"\tCould not find NI-DAQ stream in: {ecephys_compressed}")
-                            elif len(nidq_stream) == 1:
-                                nidq_file = nidq_stream[0]
-                            else:
-                                logging.info(f"\tFound multiple NI-DAQ streams in: {ecephys_compressed}")
-                            if nidq_file is not None:
-                                logging.info(f"\tUsing NI-DAQ stream: {nidq_file}")
-                                recording_nidq = si.load(nidq_file)
-                                if NIDQ_CHANNELS is None:
-                                    logging.info(f"\tNIDQ_CHANNELS is not specified, using all available channels.")
-                                    nidq_channels = list(recording_nidq.channel_ids)
-                                else:
-                                    nidq_channels = NIDQ_CHANNELS.split(",")
-                                    logging.info(f"\tUsing NIDQ channels: {nidq_channels}")
-                                all_triggers = []
-                                for nidq_channel in nidq_channels:
-                                    logging.info(f"\tProcessing NIDQ channel: {nidq_channel}")
-                                    recording_nidq_sel = recording_nidq.select_channels([nidq_channel])
-                                    triggers = spre.detect_artifact_periods_by_envelope(
-                                        recording_nidq_sel,
-                                        freq_max=remove_artifact_params["freq_max"],
-                                        detect_threshold=remove_artifact_params["detect_threshold"],
+                                    evt_triggers_sync = np.searchsorted(
+                                        recording_processed.get_times(),
+                                        all_stimulation_trigger_times,
                                     )
-                                    all_triggers.append(triggers)
-                                all_triggers = _collapse_events(np.concatenate(all_triggers))
-                                start_times = recording_nidq.sample_index_to_time(triggers["start_sample_index"])
-                                end_times = recording_nidq.sample_index_to_time(
-                                    np.clip(triggers["end_sample_index"], a_min=0, a_max=recording_nidq.get_num_samples() - 1)
+                                    triggers_edges = np.zeros(len(evt_triggers_sync), dtype=base_period_dtype)
+                                    triggers_edges["start_sample_index"] = evt_triggers_sync - samples_pre
+                                    triggers_edges["end_sample_index"] = evt_triggers_sync + samples_post
+                                    triggers_edges = _collapse_events(triggers_edges)
+                                else:
+                                    logging.info("\tArtifact removal not supported for multi-segment recordings.")
+
+                            # Source 3: NIDQ traces
+                            if len(triggers_edges) == 0:
+                                ecephys_compressed = ecephys_session_folders / "ecephys" / "ecephys_compressed"
+                                experiment_node_str = recording_name.split("#")[0]
+                                nidq_stream = [
+                                    p for p in ecephys_compressed.iterdir() if "NI-DAQ" in p.name and experiment_node_str in p.name
+                                ]
+                                nidq_file = None
+                                if len(nidq_stream) == 0:
+                                    logging.info(f"\tCould not find NI-DAQ stream in: {ecephys_compressed}")
+                                elif len(nidq_stream) == 1:
+                                    nidq_file = nidq_stream[0]
+                                else:
+                                    logging.info(f"\tFound multiple NI-DAQ streams in: {ecephys_compressed}")
+                                if nidq_file is not None:
+                                    logging.info(f"\tUsing NI-DAQ stream: {nidq_file}")
+                                    recording_nidq = si.load(nidq_file)
+                                    if NIDQ_CHANNELS is None:
+                                        logging.info(f"\tNIDQ_CHANNELS is not specified, using all available channels.")
+                                        nidq_channels = list(recording_nidq.channel_ids)
+                                    else:
+                                        nidq_channels = NIDQ_CHANNELS.split(",")
+                                        logging.info(f"\tUsing NIDQ channels: {nidq_channels}")
+                                    all_triggers = []
+                                    for nidq_channel in nidq_channels:
+                                        logging.info(f"\tProcessing NIDQ channel: {nidq_channel}")
+                                        recording_nidq_sel = recording_nidq.select_channels([nidq_channel])
+                                        triggers = spre.detect_artifact_periods_by_envelope(
+                                            recording_nidq_sel,
+                                            freq_max=remove_artifact_params["freq_max"],
+                                            detect_threshold=remove_artifact_params["detect_threshold"],
+                                        )
+                                        all_triggers.append(triggers)
+                                    all_triggers = _collapse_events(np.concatenate(all_triggers))
+                                    start_times = recording_nidq.sample_index_to_time(triggers["start_sample_index"])
+                                    end_times = recording_nidq.sample_index_to_time(
+                                        np.clip(triggers["end_sample_index"], a_min=0, a_max=recording_nidq.get_num_samples() - 1)
+                                    )
+                                    recording_times = recording.get_times()
+                                    triggers = all_triggers.copy()
+                                    triggers["start_sample_index"] = np.searchsorted(recording_times, start_times)
+                                    triggers["end_sample_index"] = np.searchsorted(recording_times, end_times)
+
+                                    samples_pre = ms_to_samples(remove_artifact_params["ms_before"], recording.sampling_frequency)
+                                    samples_post = ms_to_samples(remove_artifact_params["ms_after"], recording.sampling_frequency)
+
+                                    triggers_edges = np.zeros(2 * len(triggers), dtype=triggers.dtype)
+                                    for i, t in enumerate(triggers):
+                                        triggers_edges[2 * i]["start_sample_index"] = t["start_sample_index"] - samples_pre
+                                        triggers_edges[2 * i]["end_sample_index"] = t["start_sample_index"] + samples_post
+                                        triggers_edges[2 * i + 1]["start_sample_index"] = t["end_sample_index"] - samples_pre
+                                        triggers_edges[2 * i + 1]["end_sample_index"] = t["end_sample_index"] + samples_post
+
+                                    triggers_edges = _collapse_events(triggers_edges)
+
+                            if len(triggers_edges) > 0:
+                                recording_processed = spre.silence_artifacts(
+                                    recording_processed,
+                                    periods=triggers_edges,
                                 )
-                                recording_times = recording.get_times()
-                                triggers = all_triggers.copy()
-                                triggers["start_sample_index"] = np.searchsorted(recording_times, start_times)
-                                triggers["end_sample_index"] = np.searchsorted(recording_times, end_times)
-
-                                samples_pre = ms_to_samples(remove_artifact_params["ms_before"], recording.sampling_frequency)
-                                samples_post = ms_to_samples(remove_artifact_params["ms_after"], recording.sampling_frequency)
-
-                                triggers_edges = np.zeros(2 * len(triggers), dtype=triggers.dtype)
-                                for i, t in enumerate(triggers):
-                                    triggers_edges[2 * i]["start_sample_index"] = t["start_sample_index"] - samples_pre
-                                    triggers_edges[2 * i]["end_sample_index"] = t["start_sample_index"] + samples_post
-                                    triggers_edges[2 * i + 1]["start_sample_index"] = t["end_sample_index"] - samples_pre
-                                    triggers_edges[2 * i + 1]["end_sample_index"] = t["end_sample_index"] + samples_post
-
-                                triggers_edges = _collapse_events(triggers_edges)
-
-                        if len(triggers_edges) > 0:
-                            recording_processed = spre.silence_artifacts(
-                                recording_processed,
-                                periods=triggers_edges,
-                            )
-                            logging.info(f"\tFound {len(triggers_edges) // 2} optical stimulation artifacts")
-                            preprocessing_notes += (
-                                f"\n- Found {len(triggers_edges) // 2} optical stimulation artifacts.\n"
-                            )
-                        else:
-                            logging.info(f"\tFound no optical stimulation artifacts")
-                            preprocessing_notes += f"\n- Found no optical stimulation artifacts.\n"
+                                logging.info(f"\tFound {len(triggers_edges) // 2} optical stimulation artifacts")
+                                preprocessing_notes += (
+                                    f"\n- Found {len(triggers_edges) // 2} optical stimulation artifacts.\n"
+                                )
+                            else:
+                                logging.info(f"\tFound no optical stimulation artifacts")
+                                preprocessing_notes += f"\n- Found no optical stimulation artifacts.\n"
 
                 # Proceed with motion correction and saving only if preprocessing succeeded,
                 # otherwise we skip directly to saving the raw recording and motion visualization (if possible)
