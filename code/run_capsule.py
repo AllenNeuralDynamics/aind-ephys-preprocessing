@@ -544,7 +544,16 @@ if __name__ == "__main__":
 
                                     # read OE events
                                     events = se.read_openephys_event(ecephys_folder, block_index=0)
-                                    evts = events.get_events(channel_id="PXIe-6341Digital Input Line")
+                                    evts = None
+                                    for segment_index in range(events.get_num_segments()):
+                                        evts_seg = events.get_events(
+                                            channel_id="PXIe-6341Digital Input Line",
+                                            segment_index=segment_index
+                                        )
+                                        if evts is None:
+                                            evts = evts_seg
+                                        else:
+                                            evts = np.concatenate([evts, evts_seg])
 
                                     labels, counts = np.unique(evts["label"], return_counts=True)
                                     (label_index,) = np.where(counts == len(opto_df))
@@ -589,8 +598,8 @@ if __name__ == "__main__":
                                         with open(behavior_json_file) as f:
                                             behavior_data = json.load(f)
                                         laser_info = behavior_data.get("Opto_dialog", None)
-                                        stimulation_trigger_times = behavior_data.get("B_OptogeneticsTimeHarp", None)
-                                        if laser_info is not None and stimulation_trigger_times is not None:
+                                        stimulation_trigger_times = behavior_data.get("B_OptogeneticsTimeHarp", [])
+                                        if laser_info is not None and len(stimulation_trigger_times) > 0:
                                             active_laser_ids = [
                                                 k.split("_")[1]
                                                 for k, v in laser_info.items()

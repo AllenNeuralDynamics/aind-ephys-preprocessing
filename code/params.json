@@ -43,13 +43,6 @@
             "agc_window_length_s": 0.01,
             "highpass_butter_order": 3,
             "highpass_butter_wn": 0.01
-        },
-        "apply_remove_artifacts": true,
-        "remove_artifacts": {
-            "ms_before": 1,
-            "ms_after": 1,
-            "freq_max": 9000,
-            "detect_threshold": 30
         }
     },
     "custom_preprocessing_pipeline": null,
@@ -63,5 +56,12 @@
             "win_scale_norm": 0.1
         },
         "interpolate_motion_kwargs": {}
+    },
+    "apply_remove_artifacts": true,
+    "remove_artifacts": {
+        "ms_before": 1,
+        "ms_after": 1,
+        "freq_max": 9000,
+        "detect_threshold": 30
     }
 }
