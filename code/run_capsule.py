@@ -194,7 +194,9 @@ def run() -> None:
         APPLY_MOTION = True if motion_arg == "apply" else False
         MIN_DURATION_FOR_PREPROCESSING = args.static_min_duration_for_preprocessing or args.min_duration_for_preprocessing
 
-    LOGGING = preprocessing_params.pop("logging", None)
+    # TODO: temporary - remove from params.json when logging is distributed by pipeline
+    LOGGING = preprocessing_params.get("logging", None)
+
     DEFAULT_PREPROCESSING_PIPELINE = preprocessing_params.pop("default_preprocessing_pipeline", None)
     assert DEFAULT_PREPROCESSING_PIPELINE is not None or CUSTOM_PREPROCESSING_PIPELINE is not None, (
         "At least one of default_preprocessing_pipeline or custom_preprocessing_pipeline must be provided "
