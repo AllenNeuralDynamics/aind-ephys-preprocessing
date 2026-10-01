@@ -18,7 +18,3 @@ RUN pip install -U --no-cache-dir \
     spikeinterface[full]==0.105.0 \
     torch==2.6.0 \
     wavpack-numcodecs==0.2.2
-
-COPY postInstall /
-RUN --mount=type=secret,id=secrets . /run/secrets/secrets \
-    && /postInstall
