@@ -474,8 +474,8 @@ if __name__ == "__main__":
 
                     # Skip further processing if too many bad channels
                     max_bad_channel_fraction = preprocessing_params["max_bad_channel_fraction"]
-                    if (REMOVE_BAD_CHANNELS or REMOVE_OUT_CHANNELS) and num_channels_after < int(max_bad_channel_fraction * num_channels_before):
-                        num_bad_channels = num_channels_before - num_channels_after
+                    num_bad_channels = num_channels_before - num_channels_after
+                    if (REMOVE_BAD_CHANNELS or REMOVE_OUT_CHANNELS) and num_bad_channels >= int((max_bad_channel_fraction) * num_channels_before):
                         logging.info(f"\tMore than {max_bad_channel_fraction * 100}% bad channels ({num_bad_channels}). ")
                         preprocessing_notes += f"\n- Found {num_bad_channels} bad channels."
                         skip_processing = True
@@ -489,7 +489,23 @@ if __name__ == "__main__":
                     # Saving and motion correction are common to the "standard" and "custom" preprocessing pipelines
                     recording_bin = recording_processed.save(folder=preprocessing_output_folder)
 
-                    # motion correction
+                    # This is used to reload the binary traces downstream
+                    dump_to_json_or_pickle(
+                        recording_bin,
+                        results_folder,
+                        binary_output_filename,
+                        relative_to=results_folder
+                    )
+
+                    # This is to reload the recordings lazily
+                    dump_to_json_or_pickle(
+                        recording_processed,
+                        results_folder,
+                        preprocessing_output_filename,
+                        relative_to=results_folder
+                    )
+
+                    # Motion correction
                     recording_corrected = None
                     recording_bin_corrected = None
                     if motion_params["compute"]:
@@ -598,22 +614,6 @@ if __name__ == "__main__":
                         else:
                             logging.info(f"\tMotion computation failed. Skipping motion correction")
                             preprocessing_notes += "\n- Motion computation failed. Skipping motion correction.\n"
-
-                        # this is used to reload the binary traces downstream
-                        dump_to_json_or_pickle(
-                            recording_bin,
-                            results_folder,
-                            binary_output_filename,
-                            relative_to=results_folder
-                        )
-
-                        # this is to reload the recordings lazily            
-                        dump_to_json_or_pickle(
-                            recording_processed,
-                            results_folder,
-                            preprocessing_output_filename,
-                            relative_to=results_folder
-                        )
 
                         # this is to reload the motion-corrected recording lazily
                         if recording_corrected is not None:     
