@@ -13,7 +13,7 @@ RUN apt-get update \
 
 RUN pip install -U --no-cache-dir \
     aind-data-schema==2.8.1 \
-    aind-log-utils==0.2.3 \
+    log-schema==0.2.10.dev1 \
     s3fs==2025.5.1 \
     spikeinterface[full]==0.105.0 \
     torch==2.6.0 \
