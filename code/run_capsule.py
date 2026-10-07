@@ -528,25 +528,6 @@ def run() -> None:
                         estimate_motion_kwargs["bin_s"] = MOTION_TEMPORAL_BIN_S
                         logging.info(f"\t\tUsing bin_s: {MOTION_TEMPORAL_BIN_S}")
 
-                        # the win_step_norm/win_scale_norm define the win_step_um/win_scale_um based on the probe_span
-                        probe_span = np.ptp(recording.get_channel_locations()[:, 1])
-                        if "win_step_norm" in estimate_motion_kwargs:
-                            win_step_norm = estimate_motion_kwargs.pop("win_step_norm")
-                        else:
-                            win_step_norm = None
-                        if "win_scale_norm" in estimate_motion_kwargs:
-                            win_scale_norm = estimate_motion_kwargs.pop("win_scale_norm")
-                        else:
-                            win_scale_norm = None
-                        if win_step_norm is not None:
-                            win_step_um = win_step_norm * probe_span
-                            estimate_motion_kwargs["win_step_um"] = win_step_um
-                            logging.info(f"\t\tUsing win_step_um: {win_step_um}")
-                        if win_scale_norm is not None:
-                            win_scale_um = win_scale_norm * probe_span
-                            estimate_motion_kwargs["win_scale_um"] = win_scale_um
-                            logging.info(f"\t\tUsing win_scale_um: {win_scale_um}")
-
                         motion_folder = results_folder / f"motion_{recording_name}"
                         interpolate_motion_kwargs = motion_params.get("interpolate_motion_kwargs", {})
 
