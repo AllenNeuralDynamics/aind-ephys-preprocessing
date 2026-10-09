@@ -33,7 +33,6 @@ from aind_data_schema_models.process_names import ProcessName
 URL = "https://github.com/AllenNeuralDynamics/aind-ephys-preprocessing"
 VERSION = "1.0"
 
-
 data_folder = Path("../data/")
 scratch_folder = Path("../scratch/")
 results_folder = Path("../results/")
@@ -124,13 +123,6 @@ t_stop_help = (
 t_stop_group.add_argument("static_t_stop", nargs="?", default=None, help=t_stop_help)
 t_stop_group.add_argument("--t-stop", default=None, help=t_stop_help)
 
-min_duration_group = parser.add_mutually_exclusive_group()
-min_duration_help = (
-    "Minimum duration of a recording to be preprocessed."
-)
-min_duration_group.add_argument("static_min_duration_for_preprocessing", nargs="?", default=None, help=min_duration_help)
-min_duration_group.add_argument("--min-duration-for-preprocessing", default=None, help=min_duration_help)
-
 n_jobs_group = parser.add_mutually_exclusive_group()
 n_jobs_help = (
     "Number of jobs to use for parallel processing. Default is -1 (all available cores). "
@@ -139,8 +131,25 @@ n_jobs_help = (
 n_jobs_group.add_argument("static_n_jobs", nargs="?", default=None, help=n_jobs_help)
 n_jobs_group.add_argument("--n-jobs", default="-1", help=n_jobs_help)
 
-parser.add_argument("--params", default=None, help="Path to the parameters file or JSON string. If given, it will override all other arguments.")
+# S3 output path - None is the default
+s3_output_group = parser.add_mutually_exclusive_group()
+s3_output_help = (
+    "S3 prefix (s3://bucket/prefix) where preprocessed recordings are saved as zarr. "
+    "If None, they are saved as binary folders in results."
+)
+s3_output_group.add_argument("static_s3_output_folder", nargs="?", default=None, help=s3_output_help)
+s3_output_group.add_argument("--s3-output-folder", default=None, help=s3_output_help)
 
+# Not part of app panel currently
+min_duration_group = parser.add_mutually_exclusive_group()
+min_duration_help = (
+    "Minimum duration of a recording to be preprocessed."
+)
+min_duration_group.add_argument("static_min_duration_for_preprocessing", nargs="?", default=None, help=min_duration_help)
+min_duration_group.add_argument("--min-duration-for-preprocessing", default=None, help=min_duration_help)
+
+
+parser.add_argument("--params", default=None, help="Path to the parameters file or JSON string. If given, it will override all other arguments.")
 
 
 def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
@@ -217,6 +226,17 @@ def run() -> None:
     N_JOBS_EXT = os.getenv("CO_CPUS") or os.getenv("N_JOBS_EXT")
     N_JOBS = int(N_JOBS_EXT) if N_JOBS_EXT is not None else N_JOBS
 
+    # Get S3 output path
+    S3_OUTPUT_FOLDER = (args.static_s3_output_folder or args.s3_output_folder or "").strip().rstrip("/")
+    if S3_OUTPUT_FOLDER.lower() in ("", "none"):
+        S3_OUTPUT_FOLDER = None
+    elif not S3_OUTPUT_FOLDER.startswith("s3://"):
+        raise ValueError(f"--s3-output-folder must start with s3://, got {S3_OUTPUT_FOLDER}")
+
+    # Get computation ID to make runs unique even when input parameters are the same
+    RUN_TAG = os.getenv("CO_COMPUTATION_ID")
+    logging.info(f"\tRUN_TAG: {RUN_TAG}")
+
     ecephys_session_folders = [
         p for p in data_folder.iterdir()
         if p.is_dir() and "ecephys" in p.name.lower() or "behavior" in p.name.lower()
@@ -260,6 +280,7 @@ def run() -> None:
 
     logging.info("Begin processing...", extra={"event_type": "stage_start"})
     logging.info(f"Running preprocessing with the following parameters:")
+    # logging.info({k: v for k, v in os.environ.items() if k.startswith(("CO_", "NXF_"))})  # CO credentials
     if CUSTOM_PREPROCESSING_PIPELINE is None:
         logging.info(f"\tDENOISING_STRATEGY: {DENOISING_STRATEGY}")
         logging.info(f"\tFILTER TYPE: {FILTER_TYPE}")
@@ -492,8 +513,20 @@ def run() -> None:
                 # Proceed with motion correction and saving only if preprocessing succeeded,
                 # otherwise we skip directly to saving the raw recording and motion visualization (if possible)
                 if not skip_processing:
-                    # Saving and motion correction are common to the "standard" and "custom" preprocessing pipelines
-                    recording_bin = recording_processed.save(folder=preprocessing_output_folder)
+                    # Save to S3 if possible. Fall back is to save to the results folder
+                    # # TEST
+                    # test_zarr_url = f"{S3_OUTPUT_FOLDER}/{session_name}/{RUN_TAG}/preprocessed_{recording_name}.zarr"
+                    # logging.info(f"\tTEST ZARR PATH {test_zarr_url}")
+
+
+                    if S3_OUTPUT_FOLDER is not None:
+                        zarr_url = f"{S3_OUTPUT_FOLDER}/{session_name}/{RUN_TAG}/preprocessed_{recording_name}.zarr"
+                        logging.info(f"\tSaving preprocessed recording to {zarr_url}")
+                        recording_bin = recording_processed.save(
+                            format="zarr", folder=zarr_url, storage_options={}
+                        )
+                    else:
+                        recording_bin = recording_processed.save(folder=preprocessing_output_folder)
 
                     # This is used to reload the binary traces downstream
                     dump_to_json_or_pickle(
