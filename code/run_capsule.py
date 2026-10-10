@@ -38,6 +38,13 @@ data_folder = Path("../data/")
 scratch_folder = Path("../scratch/")
 results_folder = Path("../results/")
 
+# Retry rejected/throttled S3 requests (re-signed with a fresh timestamp) instead of failing
+# the save, e.g. RequestTimeTooSkewed when many instances write at once. Stored in the
+# recording JSON, so downstream reads retry too; contains no credentials.
+S3_STORAGE_OPTIONS = {
+    "config_kwargs": {"retries": {"max_attempts": 10, "mode": "adaptive"}}
+}
+
 motion_presets = spre.get_motion_presets()
 
 # define argument parser
@@ -672,7 +679,9 @@ def run() -> None:
                         zarr_url = f"{S3_OUTPUT_FOLDER}/{session_name}/{RUN_TAG}/preprocessed_{recording_name}.zarr"
                         logging.info(f"\tSaving preprocessed recording to {zarr_url}")
                         recording_bin = recording_processed.save(
-                            format="zarr", folder=zarr_url, storage_options={}
+                            format="zarr",
+                            folder=zarr_url,
+                            storage_options=S3_STORAGE_OPTIONS,
                         )
                     else:
                         recording_bin = recording_processed.save(
