@@ -10,13 +10,17 @@ import os
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import argparse
+import email.utils
 import json
 import logging
 import pickle
 import shutil
 import sys
 import time
-from datetime import datetime, timedelta
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -38,12 +42,8 @@ data_folder = Path("../data/")
 scratch_folder = Path("../scratch/")
 results_folder = Path("../results/")
 
-# Retry rejected/throttled S3 requests (re-signed with a fresh timestamp) instead of failing
-# the save, e.g. RequestTimeTooSkewed when many instances write at once. Stored in the
-# recording JSON, so downstream reads retry too; contains no credentials.
-S3_STORAGE_OPTIONS = {
-    "config_kwargs": {"retries": {"max_attempts": 10, "mode": "adaptive"}}
-}
+# Zarr metadata files: uploaded last, so an interrupted upload never looks like a complete zarr
+ZARR_METADATA_FILES = {".zarray", ".zattrs", ".zgroup", ".zmetadata"}
 
 motion_presets = spre.get_motion_presets()
 
@@ -208,6 +208,61 @@ def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
         recording.dump_to_pickle(
             results_folder / f"{base_name}.pkl", relative_to=relative_to
         )
+
+
+def s3_clock_offset_s() -> float:
+    """Seconds this machine's clock is ahead of S3's (negative = behind)."""
+    request = urllib.request.Request("https://s3.amazonaws.com", method="HEAD")
+    try:
+        headers = urllib.request.urlopen(request, timeout=10).headers
+    except urllib.error.HTTPError as e:  # error status, but the Date header is still there
+        headers = e.headers
+    server_time = email.utils.parsedate_to_datetime(headers["Date"])
+    return (datetime.now(timezone.utc) - server_time).total_seconds()
+
+
+def upload_folder_to_s3(
+    local_folder: Path, s3_url: str, n_threads: int = 16, max_attempts: int = 8
+) -> int:
+    """Upload every file of a local folder to s3_url, retrying each file independently.
+
+    Writing straight to S3 from the save workers fails the whole recording on a single
+    rejected request (e.g. RequestTimeTooSkewed under heavy load). Here every file is
+    signed when sent, so each retry is a fresh request.
+    """
+    import s3fs
+
+    fs = s3fs.S3FileSystem()
+    files = [p for p in local_folder.rglob("*") if p.is_file()]
+    data_files = [p for p in files if p.name not in ZARR_METADATA_FILES]
+    metadata_files = [p for p in files if p.name in ZARR_METADATA_FILES]
+
+    def upload(path: Path) -> None:
+        key = f"{s3_url}/{path.relative_to(local_folder).as_posix()}"
+        for attempt in range(1, max_attempts + 1):
+            try:
+                fs.put_file(str(path), key)
+                return
+            except Exception as e:
+                if attempt == max_attempts:
+                    raise
+                wait = min(2**attempt, 60)
+                logging.warning(
+                    f"\t\tUpload of {key} failed ({e}); retry {attempt} in {wait}s"
+                )
+                time.sleep(wait)
+
+    # Data chunks first, metadata last
+    for batch in (data_files, metadata_files):
+        with ThreadPoolExecutor(n_threads) as executor:
+            # list() re-raises the first upload that ran out of retries
+            list(executor.map(upload, batch))
+
+    fs.invalidate_cache()
+    n_remote = len(fs.find(s3_url))
+    if n_remote != len(files):
+        raise RuntimeError(f"Uploaded {n_remote} of {len(files)} files to {s3_url}")
+    return len(files)
 
 
 def run() -> None:
@@ -677,12 +732,48 @@ def run() -> None:
 
                     if S3_OUTPUT_FOLDER is not None:
                         zarr_url = f"{S3_OUTPUT_FOLDER}/{session_name}/{RUN_TAG}/preprocessed_{recording_name}.zarr"
-                        logging.info(f"\tSaving preprocessed recording to {zarr_url}")
-                        recording_bin = recording_processed.save(
-                            format="zarr",
-                            folder=zarr_url,
-                            storage_options=S3_STORAGE_OPTIONS,
+                        # Diagnostic only: never fail the run over it
+                        try:
+                            logging.info(
+                                f"\tClock offset vs S3: {s3_clock_offset_s():+.1f} s"
+                            )
+                        except Exception as e:
+                            logging.info(f"\tClock offset vs S3: unavailable ({e})")
+
+                        # 1) Save locally: no S3 requests during preprocessing
+                        local_zarr = (
+                            scratch_folder / f"preprocessed_{recording_name}.zarr"
                         )
+                        # Uncompressed size, so an upper bound on the zarr size
+                        needed_gb = (
+                            recording_processed.get_total_samples()
+                            * recording_processed.get_num_channels()
+                            * recording_processed.get_dtype().itemsize
+                        ) / 1e9
+                        free_gb = shutil.disk_usage(scratch_folder).free / 1e9
+                        logging.info(
+                            f"\tSaving preprocessed recording locally to {local_zarr} "
+                            f"(≤{needed_gb:.0f} GB, {free_gb:.0f} GB free)"
+                        )
+                        if free_gb < needed_gb:
+                            raise RuntimeError(
+                                f"Not enough scratch space for {recording_name}: "
+                                f"need ≤{needed_gb:.0f} GB, have {free_gb:.0f} GB"
+                            )
+                        recording_processed.save(format="zarr", folder=local_zarr)
+
+                        # 2) Upload to S3 with per-file retries
+                        logging.info(f"\tUploading to {zarr_url}")
+                        t_upload = time.perf_counter()
+                        n_files = upload_folder_to_s3(local_zarr, zarr_url)
+                        logging.info(
+                            f"\tUploaded {n_files} files in "
+                            f"{(time.perf_counter() - t_upload) / 60:.1f} min"
+                        )
+                        shutil.rmtree(local_zarr)
+
+                        # 3) Pointer to the S3 copy, used by the JSON dumps below
+                        recording_bin = si.load(zarr_url)
                     else:
                         recording_bin = recording_processed.save(
                             folder=preprocessing_output_folder
