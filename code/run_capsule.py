@@ -10,6 +10,7 @@ import os
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import argparse
+import copy
 import sys
 import shutil
 import numpy as np
@@ -29,6 +30,8 @@ from spikeinterface.core.core_tools import check_json
 from aind_data_schema.core.processing import DataProcess, ProcessStage
 from aind_data_schema.components.identifiers import Code
 from aind_data_schema_models.process_names import ProcessName
+
+from bad_channels import detect_bad_channels_relative
 
 
 URL = os.getenv("CODE_REPO", "https://github.com/AllenNeuralDynamics/aind-ephys-preprocessing")
@@ -53,7 +56,7 @@ denoising_group.add_argument("static_denoising", nargs="?", default="cmr", help=
 filter_group = parser.add_mutually_exclusive_group()
 filter_help = "Which filter to use. Can be 'highpass' or 'bandpass'"
 filter_group.add_argument("--filter-type", choices=["highpass", "bandpass"], help=filter_help)
-filter_group.add_argument("static_filter_type", nargs="?", default="highpass", help=filter_help)
+filter_group.add_argument("static_filter_type", nargs="?", default="bandpass", help=filter_help)
 
 remove_out_channels_group = parser.add_mutually_exclusive_group()
 remove_out_channels_help = "Whether to remove out channels"
@@ -198,6 +201,7 @@ def run() -> None:
     # TODO: temporary - remove from params.json when logging is distributed by pipeline
     LOGGING = preprocessing_params.get("logging", None)
 
+    PSD_HF_RELATIVE_THRESHOLD = preprocessing_params.get("psd_hf_relative_threshold", None)
     DEFAULT_PREPROCESSING_PIPELINE = preprocessing_params.pop("default_preprocessing_pipeline", None)
     assert DEFAULT_PREPROCESSING_PIPELINE is not None or CUSTOM_PREPROCESSING_PIPELINE is not None, (
         "At least one of default_preprocessing_pipeline or custom_preprocessing_pipeline must be provided "
@@ -392,13 +396,15 @@ def run() -> None:
             # Proceed with preprocessing pipeline
             if not skip_processing:
                 num_channels_before = recording.get_num_channels()
+                detected_channel_labels = None
                 if CUSTOM_PREPROCESSING_PIPELINE is not None:
                     logging.info(f"\tRunning custom preprocessing pipeline with steps: {list(CUSTOM_PREPROCESSING_PIPELINE.keys())}")
 
                     preprocessing_pipeline = CUSTOM_PREPROCESSING_PIPELINE
                 else:
                     # Using default steps of the preprocessing pipeline
-                    preprocessing_pipeline = DEFAULT_PREPROCESSING_PIPELINE.copy()
+                    # deep, so per-recording edits such as channel_filters do not leak into the next recording
+                    preprocessing_pipeline = copy.deepcopy(DEFAULT_PREPROCESSING_PIPELINE)
                     # Remove phase_shift if inter_sample_shift is not available, since it relies on it
                     if "inter_sample_shift" not in recording.get_property_keys():
                         preprocessing_pipeline.pop("phase_shift", None)
@@ -419,6 +425,27 @@ def run() -> None:
                         channel_filters.remove("dead")
                         channel_filters.remove("noise")
                     preprocessing_pipeline["detect_and_remove_bad_channels"]["channel_filters"] = set(channel_filters)
+
+                    # Detect on a highpass view of the phase-shifted recording, whatever the pipeline's filter, and
+                    # pass the result to the pipeline step, which then only removes channels
+                    try:
+                        recording_detect = recording
+                        if "phase_shift" in preprocessing_pipeline:
+                            recording_detect = spre.phase_shift(recording, **preprocessing_pipeline["phase_shift"])
+                        bad_channel_ids, detected_channel_labels, psd_hf_threshold = detect_bad_channels_relative(
+                            recording_detect,
+                            highpass_freq_min=DEFAULT_PREPROCESSING_PIPELINE["highpass_filter"]["freq_min"],
+                            psd_hf_relative_threshold=PSD_HF_RELATIVE_THRESHOLD,
+                            **preprocessing_pipeline["detect_and_remove_bad_channels"],
+                        )
+                        preprocessing_pipeline["detect_and_remove_bad_channels"] = dict(bad_channel_ids=bad_channel_ids)
+                        if psd_hf_threshold is not None:
+                            logging.info(f"\tPSD noise threshold: {psd_hf_threshold:.4f} uV^2/Hz")
+                            preprocessing_notes += f"\n- PSD noise threshold {psd_hf_threshold:.4f} uV^2/Hz."
+                    except Exception as e:
+                        # the pipeline step then detects on its own input
+                        detected_channel_labels = None
+                        logging.info(f"\tHighpass bad-channel detection failed with error: {e}")
 
                     # Select denoising strategy
                     if DENOISING_STRATEGY == "cmr":
@@ -460,7 +487,8 @@ def run() -> None:
 
                         if step_name == "detect_and_remove_bad_channels":
                             # grab channel_labels from the bad channel detection step if available
-                            channel_labels = step_recording._kwargs.get("channel_labels", None)
+                            # a step given precomputed bad_channel_ids does not keep labels
+                            channel_labels = step_recording._kwargs.get("channel_labels", detected_channel_labels)
                             # add new visualization with denoised channels and removal
                             visualization_name = "proc"
 
