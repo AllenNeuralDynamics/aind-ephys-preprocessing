@@ -575,6 +575,7 @@ def run() -> None:
                 )
                 preprocessing_notes += f"\n- Recording is too short ({recording.get_total_duration()}s). Skipping further processing\n"
                 channel_labels = None
+                channel_label_ids = None
                 skip_processing = True
                 skip_reason = "Recording too short"
 
@@ -650,6 +651,7 @@ def run() -> None:
                 # Proceed with preprocessing if any step succeeded
                 if not skip_processing:
                     channel_labels = None
+                    channel_label_ids = None
                     # Populate visualization data for each step of the preprocessing pipeline
                     visualization_name = "full"
                     for step_name in preprocessing_pipeline.keys():
@@ -670,6 +672,8 @@ def run() -> None:
                             channel_labels = step_recording._kwargs.get(
                                 "channel_labels", None
                             )
+                            # The labels are in the channel order of the step's input
+                            channel_label_ids = step_recording.get_parent().channel_ids
                             # add new visualization with denoised channels and removal
                             visualization_name = "proc"
 
@@ -988,6 +992,8 @@ def run() -> None:
             if channel_labels is not None:
                 preprocessing_outputs = dict(
                     channel_labels=channel_labels.tolist(),
+                    # The collector matches labels across windows by channel id
+                    channel_ids=np.asarray(channel_label_ids).tolist(),
                 )
             else:
                 preprocessing_outputs = dict()
