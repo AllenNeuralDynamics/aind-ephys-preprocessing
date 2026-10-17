@@ -14,6 +14,7 @@ import email.utils
 import json
 import logging
 import pickle
+import random
 import shutil
 import sys
 import time
@@ -229,28 +230,37 @@ def upload_folder_to_s3(
     Writing straight to S3 from the save workers fails the whole recording on a single
     rejected request (e.g. RequestTimeTooSkewed under heavy load). Here every file is
     signed when sent, so each retry is a fresh request.
+
+    Many preprocessing instances upload to the same run folder at once, so S3 can
+    throttle them (SlowDown). Botocore's adaptive retry mode then slows this
+    instance's requests, and the retry waits are jittered so instances don't
+    retry in lockstep.
     """
     import s3fs
 
-    fs = s3fs.S3FileSystem()
+    fs = s3fs.S3FileSystem(
+        config_kwargs={"retries": {"mode": "adaptive", "max_attempts": 10}}
+    )
     files = [p for p in local_folder.rglob("*") if p.is_file()]
     data_files = [p for p in files if p.name not in ZARR_METADATA_FILES]
     metadata_files = [p for p in files if p.name in ZARR_METADATA_FILES]
 
-    def upload(path: Path) -> None:
-        key = f"{s3_url}/{path.relative_to(local_folder).as_posix()}"
+    def with_retries(action, description: str):
         for attempt in range(1, max_attempts + 1):
             try:
-                fs.put_file(str(path), key)
-                return
+                return action()
             except Exception as e:
                 if attempt == max_attempts:
                     raise
-                wait = min(2**attempt, 60)
+                wait = min(2**attempt, 60) * random.uniform(0.5, 1.5)
                 logging.warning(
-                    f"\t\tUpload of {key} failed ({e}); retry {attempt} in {wait}s"
+                    f"\t\t{description} failed ({e}); retry {attempt} in {wait:.0f}s"
                 )
                 time.sleep(wait)
+
+    def upload(path: Path) -> None:
+        key = f"{s3_url}/{path.relative_to(local_folder).as_posix()}"
+        with_retries(lambda: fs.put_file(str(path), key), f"Upload of {key}")
 
     # Data chunks first, metadata last
     for batch in (data_files, metadata_files):
@@ -259,7 +269,7 @@ def upload_folder_to_s3(
             list(executor.map(upload, batch))
 
     fs.invalidate_cache()
-    n_remote = len(fs.find(s3_url))
+    n_remote = len(with_retries(lambda: fs.find(s3_url), f"Listing {s3_url}"))
     if n_remote != len(files):
         raise RuntimeError(f"Uploaded {n_remote} of {len(files)} files to {s3_url}")
     return len(files)
