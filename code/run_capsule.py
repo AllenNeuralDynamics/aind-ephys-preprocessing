@@ -769,10 +769,12 @@ def run() -> None:
                             f"\tSaving preprocessed recording locally to {local_zarr} "
                             f"(≤{needed_gb:.0f} GB, {free_gb:.0f} GB free)"
                         )
+                        # Scratch grows on demand, so the current free space is not
+                        # a limit: warn only, and let the save fail if it cannot grow
                         if free_gb < needed_gb:
-                            raise RuntimeError(
-                                f"Not enough scratch space for {recording_name}: "
-                                f"need ≤{needed_gb:.0f} GB, have {free_gb:.0f} GB"
+                            logging.warning(
+                                "\tScratch has less free space than the save may need; "
+                                "continuing, as scratch grows as it fills"
                             )
                         recording_processed.save(format="zarr", folder=local_zarr)
 
