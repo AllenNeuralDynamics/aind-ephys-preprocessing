@@ -758,24 +758,9 @@ def run() -> None:
                         local_zarr = (
                             scratch_folder / f"preprocessed_{recording_name}.zarr"
                         )
-                        # Uncompressed size, so an upper bound on the zarr size
-                        needed_gb = (
-                            recording_processed.get_total_samples()
-                            * recording_processed.get_num_channels()
-                            * recording_processed.get_dtype().itemsize
-                        ) / 1e9
-                        free_gb = shutil.disk_usage(scratch_folder).free / 1e9
                         logging.info(
-                            f"\tSaving preprocessed recording locally to {local_zarr} "
-                            f"(≤{needed_gb:.0f} GB, {free_gb:.0f} GB free)"
+                            f"\tSaving preprocessed recording locally to {local_zarr}"
                         )
-                        # Scratch grows on demand, so the current free space is not
-                        # a limit: warn only, and let the save fail if it cannot grow
-                        if free_gb < needed_gb:
-                            logging.warning(
-                                "\tScratch has less free space than the save may need; "
-                                "continuing, as scratch grows as it fills"
-                            )
                         recording_processed.save(format="zarr", folder=local_zarr)
 
                         # 2) Upload to S3 with per-file retries
