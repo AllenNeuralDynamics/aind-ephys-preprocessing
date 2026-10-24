@@ -176,7 +176,7 @@ def run() -> None:
         MIN_DURATION_FOR_PREPROCESSING = preprocessing_params.pop("min_preprocessing_duration", 120)
         motion_params = preprocessing_params.get("motion_correction", None)
         MOTION_PRESET = motion_params.pop("preset", None)
-        MOTION_TEMPORAL_BIN_S = motion_params.pop("temporal_bin_s", 1)
+        MOTION_TEMPORAL_BIN_S = float(motion_params.pop("temporal_bin_s", 1))
         COMPUTE_MOTION = motion_params.pop("compute", True)
         APPLY_MOTION = motion_params.pop("apply", False)
     else:
