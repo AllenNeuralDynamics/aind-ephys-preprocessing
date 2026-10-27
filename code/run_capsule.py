@@ -9,7 +9,6 @@ import os
 # and let spikeinterface handle parallelization
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
-import argparse
 import sys
 import shutil
 import numpy as np
@@ -38,111 +37,9 @@ VERSION = os.getenv("CODE_VERSION", "1.0")
 data_folder = Path("../data/")
 scratch_folder = Path("../scratch/")
 results_folder = Path("../results/")
+PARAMS_FILE = Path("../params.json")
 
 motion_presets = spre.get_motion_presets()
-
-# define argument parser
-parser = argparse.ArgumentParser(description="Preprocess AIND Neurpixels data")
-
-# positional arguments
-denoising_group = parser.add_mutually_exclusive_group()
-denoising_help = "Which denoising strategy to use. Can be 'cmr' or 'destripe'"
-denoising_group.add_argument("--denoising", choices=["cmr", "destripe"], help=denoising_help)
-denoising_group.add_argument("static_denoising", nargs="?", default="cmr", help=denoising_help)
-
-filter_group = parser.add_mutually_exclusive_group()
-filter_help = "Which filter to use. Can be 'highpass' or 'bandpass'"
-filter_group.add_argument("--filter-type", choices=["highpass", "bandpass"], help=filter_help)
-filter_group.add_argument("static_filter_type", nargs="?", default="highpass", help=filter_help)
-
-remove_out_channels_group = parser.add_mutually_exclusive_group()
-remove_out_channels_help = "Whether to remove out channels"
-remove_out_channels_group.add_argument("--no-remove-out-channels", action="store_true", help=remove_out_channels_help)
-remove_out_channels_group.add_argument(
-    "static_remove_out_channels", nargs="?", default="true", help=remove_out_channels_help
-)
-
-remove_bad_channels_group = parser.add_mutually_exclusive_group()
-remove_bad_channels_help = "Whether to remove bad channels"
-remove_bad_channels_group.add_argument("--no-remove-bad-channels", action="store_true", help=remove_bad_channels_help)
-remove_bad_channels_group.add_argument(
-    "static_remove_bad_channels", nargs="?", default="true", help=remove_bad_channels_help
-)
-
-max_bad_channel_fraction_group = parser.add_mutually_exclusive_group()
-max_bad_channel_fraction_help = (
-    "Maximum fraction of bad channels to remove. If more than this fraction, processing is skipped"
-)
-max_bad_channel_fraction_group.add_argument(
-    "--max-bad-channel-fraction", default=0.5, help=max_bad_channel_fraction_help
-)
-max_bad_channel_fraction_group.add_argument(
-    "static_max_bad_channel_fraction", nargs="?", default=None, help=max_bad_channel_fraction_help
-)
-
-motion_correction_group = parser.add_mutually_exclusive_group()
-motion_correction_help = "How to deal with motion correction. Can be 'skip', 'compute', or 'apply'"
-motion_correction_group.add_argument("--motion", choices=["skip", "compute", "apply"], help=motion_correction_help)
-motion_correction_group.add_argument("static_motion", nargs="?", default="compute", help=motion_correction_help)
-
-motion_preset_group = parser.add_mutually_exclusive_group()
-motion_preset_help = (
-    f"What motion preset to use. Supported presets are: {', '.join(motion_presets)}."
-)
-motion_preset_group.add_argument(
-    "--motion-preset",
-    choices=motion_presets,
-    help=motion_preset_help,
-)
-motion_preset_group.add_argument("static_motion_preset", nargs="?", default=None, help=motion_preset_help)
-
-motion_temporal_bin_s_group = parser.add_mutually_exclusive_group()
-motion_temporal_bin_s_help = (
-    ""
-)
-motion_temporal_bin_s_group.add_argument(
-    "--motion-temporal-bin-s", default=1, help=motion_temporal_bin_s_help
-)
-motion_temporal_bin_s_group.add_argument(
-    "static_motion_temporal_bin_s", nargs="?", default=None, help=motion_temporal_bin_s_help
-)
-
-t_start_group = parser.add_mutually_exclusive_group()
-t_start_help = (
-    "Start time of the recording in seconds (assumes recording starts at 0). "
-    "This parameter is ignored in case of multi-segment or multi-block recordings."
-    "Default is None (start of recording)"
-)
-t_start_group.add_argument("static_t_start", nargs="?", default=None, help=t_start_help)
-t_start_group.add_argument("--t-start", default=None, help=t_start_help)
-
-t_stop_group = parser.add_mutually_exclusive_group()
-t_stop_help = (
-    "Stop time of the recording in seconds (assumes recording starts at 0). "
-    "This parameter is ignored in case of multi-segment or multi-block recordings."
-    "Default is None (end of recording)"
-)
-t_stop_group.add_argument("static_t_stop", nargs="?", default=None, help=t_stop_help)
-t_stop_group.add_argument("--t-stop", default=None, help=t_stop_help)
-
-min_duration_group = parser.add_mutually_exclusive_group()
-min_duration_help = (
-    "Minimum duration of a recording to be preprocessed."
-)
-min_duration_group.add_argument("static_min_duration_for_preprocessing", nargs="?", default=None, help=min_duration_help)
-min_duration_group.add_argument("--min-duration-for-preprocessing", default=None, help=min_duration_help)
-
-n_jobs_group = parser.add_mutually_exclusive_group()
-n_jobs_help = (
-    "Number of jobs to use for parallel processing. Default is -1 (all available cores). "
-    "It can also be a float between 0 and 1 to use a fraction of available cores"
-)
-n_jobs_group.add_argument("static_n_jobs", nargs="?", default=None, help=n_jobs_help)
-n_jobs_group.add_argument("--n-jobs", default="-1", help=n_jobs_help)
-
-parser.add_argument("--params", default=None, help="Path to the parameters file or JSON string. If given, it will override all other arguments.")
-
-
 
 def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
     if recording.check_serializability("json"):
@@ -153,50 +50,28 @@ def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
 
 def run() -> None:
     """Entrypoint for the preprocessing capsule."""
-    args = parser.parse_args()
+    if not PARAMS_FILE.is_file():
+        raise ValueError(f"Params file not found: {PARAMS_FILE}")
+    with open(PARAMS_FILE, "r") as f:
+        full_params = json.load(f)
+    preprocessing_params = full_params["preprocessing"]
+    LOGGING = full_params.get("logging", None)
 
-    PARAMS = args.params
-    if PARAMS is not None:
-        try:
-            # Try to parse the JSON string first to avoid file name too long error
-            preprocessing_params = json.loads(PARAMS)
-        except json.JSONDecodeError:
-            if Path(PARAMS).is_file():
-                with open(PARAMS, "r") as f:
-                    preprocessing_params = json.load(f)
-            else:
-                raise ValueError(f"Invalid parameters: {PARAMS} is not a valid JSON string or file path")
-
-        CUSTOM_PREPROCESSING_PIPELINE = preprocessing_params.pop("custom_preprocessing_pipeline", None)
-        DENOISING_STRATEGY = preprocessing_params.pop("denoising_strategy", "cmr")
-        FILTER_TYPE = preprocessing_params.pop("filter_type", "highpass")
-        REMOVE_OUT_CHANNELS = preprocessing_params.pop("remove_out_channels", False)
-        REMOVE_BAD_CHANNELS = preprocessing_params.pop("remove_bad_channels", False)
-        MAX_BAD_CHANNEL_FRACTION = float(preprocessing_params.pop("max_bad_channel_fraction", 0.5))
-        MIN_DURATION_FOR_PREPROCESSING = preprocessing_params.pop("min_preprocessing_duration", 120)
-        motion_params = preprocessing_params.get("motion_correction", None)
-        MOTION_PRESET = motion_params.pop("preset", None)
-        MOTION_TEMPORAL_BIN_S = float(motion_params.pop("temporal_bin_s", 1))
-        COMPUTE_MOTION = motion_params.pop("compute", True)
-        APPLY_MOTION = motion_params.pop("apply", False)
-    else:
-        with open("params.json", "r") as f:
-            preprocessing_params = json.load(f)
-        CUSTOM_PREPROCESSING_PIPELINE = None  # flexible preprocessing only available passing a params file or JSON string
-        DENOISING_STRATEGY = args.denoising or args.static_denoising
-        FILTER_TYPE = args.filter_type or args.static_filter_type
-        REMOVE_OUT_CHANNELS = False if args.no_remove_out_channels else args.static_remove_out_channels == "true"
-        REMOVE_BAD_CHANNELS = False if args.no_remove_bad_channels else args.static_remove_bad_channels == "true"
-        MAX_BAD_CHANNEL_FRACTION = float(args.static_max_bad_channel_fraction or args.max_bad_channel_fraction)
-        motion_arg = args.motion or args.static_motion
-        MOTION_PRESET = args.static_motion_preset or args.motion_preset
-        MOTION_TEMPORAL_BIN_S = float(args.static_motion_temporal_bin_s or args.motion_temporal_bin_s)
-        COMPUTE_MOTION = True if motion_arg != "skip" else False
-        APPLY_MOTION = True if motion_arg == "apply" else False
-        MIN_DURATION_FOR_PREPROCESSING = args.static_min_duration_for_preprocessing or args.min_duration_for_preprocessing
-
-    # TODO: temporary - remove from params.json when logging is distributed by pipeline
-    LOGGING = preprocessing_params.get("logging", None)
+    CUSTOM_PREPROCESSING_PIPELINE = preprocessing_params.pop("custom_preprocessing_pipeline", None)
+    DENOISING_STRATEGY = preprocessing_params.pop("denoising_strategy", "cmr")
+    FILTER_TYPE = preprocessing_params.pop("filter_type", "highpass")
+    REMOVE_OUT_CHANNELS = preprocessing_params.pop("remove_out_channels", False)
+    REMOVE_BAD_CHANNELS = preprocessing_params.pop("remove_bad_channels", False)
+    MAX_BAD_CHANNEL_FRACTION = float(preprocessing_params.pop("max_bad_channel_fraction", 0.5))
+    MIN_DURATION_FOR_PREPROCESSING = preprocessing_params.pop("min_preprocessing_duration", 120)
+    T_START = preprocessing_params.pop("t_start", None)
+    T_STOP = preprocessing_params.pop("t_stop", None)
+    N_JOBS = preprocessing_params.pop("n_jobs", -1)
+    motion_params = preprocessing_params.get("motion_correction", None)
+    MOTION_PRESET = motion_params.pop("preset", None)
+    MOTION_TEMPORAL_BIN_S = float(motion_params.pop("temporal_bin_s", 1))
+    COMPUTE_MOTION = motion_params.pop("compute", True)
+    APPLY_MOTION = motion_params.pop("apply", False)
 
     DEFAULT_PREPROCESSING_PIPELINE = preprocessing_params.pop("default_preprocessing_pipeline", None)
     assert DEFAULT_PREPROCESSING_PIPELINE is not None or CUSTOM_PREPROCESSING_PIPELINE is not None, (
@@ -204,15 +79,7 @@ def run() -> None:
         "in the parameters"
     )
 
-    T_START = args.static_t_start or args.t_start
-    if isinstance(T_START, str) and T_START == "":
-        T_START = None
-    T_STOP = args.static_t_stop or args.t_stop
-    if isinstance(T_STOP, str) and T_STOP == "":
-        T_STOP = None
-
-    N_JOBS = args.static_n_jobs or args.n_jobs
-    N_JOBS = int(N_JOBS) if not N_JOBS.startswith("0.") else float(N_JOBS)
+    N_JOBS = int(N_JOBS) if not str(N_JOBS).startswith("0.") else float(N_JOBS)
 
     # Use CO_CPUS/N_JOBS_EXT env variable if available
     N_JOBS_EXT = os.getenv("CO_CPUS") or os.getenv("N_JOBS_EXT")
@@ -237,15 +104,7 @@ def run() -> None:
             import log_schema
 
             pipeline_name = LOGGING.get("pipeline_name", "AIND Ephys Pipeline")
-            acquisition_name = LOGGING.get("acquisition_name", None)
-
-            if acquisition_name is None:
-                data_description_json = list(data_folder.glob("**/data_description.json"))
-                if len(data_description_json) > 0:
-                    data_description_json = data_description_json[0]
-                    with open(data_description_json, "r") as f:
-                        data_description = json.load(f)
-                    acquisition_name = data_description["name"]
+            acquisition_name = LOGGING.get("acquisition_name", "unknown")
 
             config = LOGGING.get("logging_cfg")
             if config is not None and len(config) == 0:

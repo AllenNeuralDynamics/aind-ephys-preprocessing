@@ -23,31 +23,7 @@ The `data/` folder must include the session data and at least one JSON file gene
 
 ### Parameters
 
-The `code/run` script takes the following arguments:
-
-
-```bash
-  --debug               Whether to run in DEBUG mode
-  --denoising {cmr,destripe}
-                        Which denoising strategy to use. Can be 'cmr' or 'destripe'
-  --no-remove-out-channels
-                        Whether to remove out channels
-  --no-remove-bad-channels
-                        Whether to remove bad channels
-  --max-bad-channel-fraction MAX_BAD_CHANNEL_FRACTION
-                        Maximum fraction of bad channels to remove. If more than this fraction, processing is skipped
-  --motion {skip,compute,apply}
-                        How to deal with motion correction. Can be 'skip', 'compute', or 'apply'
-  --motion-preset {nonrigid_accurate,kilosort_like,nonrigid_fast_and_accurate}
-                        What motion preset to use. Can be 'nonrigid_accurate', 'kilosort_like', or 'nonrigid_fast_and_accurate'
-  --debug-duration DEBUG_DURATION
-                        Duration of clipped recording in debug mode. Default is 30 seconds. Only used if debug is enabled
-  --n-jobs N_JOBS       Number of jobs to use for parallel processing. Default is -1 (all available cores). It can also be a float between 0 and 1 to use a fraction of available cores
-  --params-file PARAMS_FILE
-                        Optional json file with parameters
-  --params-str PARAMS_STR
-                        Optional json string with parameters
-```
+Parameters are read from a `params.json` file that must be in the root folder of the capsule (next to `code/`, i.e. `../params.json` from `code/`), with a `logging` and a `preprocessing` section (keys such as `n_jobs` (default -1), `t_start`, `t_stop`).
 
 A full list of parameters can be found in the `code/params.json` file and is reported here:
 
