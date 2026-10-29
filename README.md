@@ -25,7 +25,7 @@ The `data/` folder must include the session data and at least one JSON file gene
 
 Parameters are read from a `params.json` file that must be in the root folder of the capsule (next to `code/`, i.e. `../params.json` from `code/`), with a `logging` and a `preprocessing` section (keys such as `n_jobs` (default -1), `t_start`, `t_stop`).
 
-A full list of parameters can be found in the in the `aind-ephys-pipeline` repository, and are defined in this [schema](https://github.com/AllenNeuralDynamics/aind-ephys-pipeline/blob/1.5.0/pipeline/default_params_schema.json).
+A full list of parameters can be found in the  `aind-ephys-pipeline` repository, and are defined in this [schema](https://github.com/AllenNeuralDynamics/aind-ephys-pipeline/blob/1.5.0/pipeline/default_params_schema.json).
 
 ### Output
 
