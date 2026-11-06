@@ -15,6 +15,6 @@ RUN pip install -U --no-cache-dir \
     aind-data-schema==2.8.1 \
     log-schema==0.2.10.dev1 \
     s3fs==2025.5.1 \
-    spikeinterface[full]==0.105.3 \
+    spikeinterface[full]==0.105.4 \
     torch==2.6.0 \
     wavpack-numcodecs==0.2.2

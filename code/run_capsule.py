@@ -287,6 +287,20 @@ def run() -> None:
                     else:
                         raise ValueError(f"Denoising strategy {DENOISING_STRATEGY} not recognized")
 
+                    if "detect_and_remove_artifacts" in preprocessing_pipeline:
+                        remove_artifacts_params = preprocessing_pipeline["detect_and_remove_artifacts"]
+                        method = remove_artifacts_params.get("method")
+                        if method == "saturation":
+                            # the threshold can come from method_kwargs or from the recording annotation
+                            method_kwargs = remove_artifacts_params.get("method_kwargs") or {}
+                            if "saturation_threshold_uV" not in recording.get_annotation_keys() \
+                                and method_kwargs.get("saturation_threshold_uV") is None:
+                                warnings.warn(
+                                    "Saturation threshold for artifact detection is not specified. "
+                                    "Skipping artifact removal."
+                                )
+                                preprocessing_pipeline.pop("detect_and_remove_artifacts", None)
+
                 # Apply preprocessing pipeline: to make it more robust, in case of failure we remove the last step and 
                 # try again, until we are left with an empty pipeline (in which case we skip preprocessing)
                 while not skip_processing and preprocessing_pipeline:
@@ -308,6 +322,7 @@ def run() -> None:
                 # Proceed with preprocessing if any step succeeded
                 if not skip_processing:
                     channel_labels = None
+                    artifact_periods = None
                     # Populate visualization data for each step of the preprocessing pipeline
                     visualization_name = "full"
                     for step_name in preprocessing_pipeline.keys():
@@ -321,6 +336,12 @@ def run() -> None:
                             # grab channel_labels from the bad channel detection step if available
                             channel_labels = step_recording._kwargs.get("channel_labels", None)
                             # add new visualization with denoised channels and removal
+                            visualization_name = "proc"
+
+                        if step_name == "detect_and_remove_artifacts":
+                            # grab method from the artifact removal step if available
+                            artifact_periods = step_recording.periods
+                            # add new visualization with artifact removal
                             visualization_name = "proc"
 
                         if preprocessing_visualization_data[recording_name]["timeseries"][visualization_name] is None:
@@ -337,6 +358,14 @@ def run() -> None:
                         logging.info(f"\tBad channel detection:")
                         for label, count in zip(labels, counts):
                             logging.info(f"\t\t{label} channels: {count}")
+                    # Log artifact periods if available
+                    if artifact_periods is not None:
+                        logging.info(f"\tArtifact detection:")
+                        if "sign" in artifact_periods.dtype.names:
+                            for sign, count in zip(*np.unique(artifact_periods['sign'], return_counts=True)):
+                                logging.info(f"\t\tFound {count} {sign} artifact periods")
+                        else:
+                            logging.info(f"\t\tFound {len(artifact_periods)} artifact periods")
 
                     # Skip further processing if too many bad channels
                     max_bad_channel_fraction = preprocessing_params["max_bad_channel_fraction"]
