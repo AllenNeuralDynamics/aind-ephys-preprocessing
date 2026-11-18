@@ -42,6 +42,10 @@ PARAMS_FILE = Path("../params.json")
 motion_presets = spre.get_motion_presets()
 
 def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
+    if (results_folder / f"{base_name}.json").is_file():
+        (results_folder / f"{base_name}.json").unlink()
+    if (results_folder / f"{base_name}.pkl").is_file():
+        (results_folder / f"{base_name}.pkl").unlink()
     if recording.check_serializability("json"):
         recording.dump_to_json(results_folder / f"{base_name}.json", relative_to=relative_to)
     else:
@@ -384,22 +388,6 @@ def run() -> None:
                     # Saving and motion correction are common to the "standard" and "custom" preprocessing pipelines
                     recording_bin = recording_processed.save(folder=preprocessing_output_folder)
 
-                    # This is used to reload the binary traces downstream
-                    dump_to_json_or_pickle(
-                        recording_bin,
-                        results_folder,
-                        binary_output_filename,
-                        relative_to=results_folder
-                    )
-
-                    # This is to reload the recordings lazily
-                    dump_to_json_or_pickle(
-                        recording_processed,
-                        results_folder,
-                        preprocessing_output_filename,
-                        relative_to=results_folder
-                    )
-
                     # Motion correction
                     recording_corrected = None
                     recording_bin_corrected = None
@@ -431,74 +419,90 @@ def run() -> None:
                             recording_processed_c = recording_processed
 
                         # use compute motion
-                        motion = spre.compute_motion(
-                            recording_bin_c,
-                            preset=preset,
-                            folder=motion_folder,
-                            detect_kwargs=detect_kwargs,
-                            select_kwargs=select_kwargs,
-                            localize_peaks_kwargs=localize_peaks_kwargs,
-                            estimate_motion_kwargs=estimate_motion_kwargs,
-                            raise_error=False
-                        )
+                        try:
+                            motion = spre.compute_motion(
+                                recording_bin_c,
+                                preset=preset,
+                                folder=motion_folder,
+                                detect_kwargs=detect_kwargs,
+                                select_kwargs=select_kwargs,
+                                localize_peaks_kwargs=localize_peaks_kwargs,
+                                estimate_motion_kwargs=estimate_motion_kwargs,
+                                raise_error=False
+                            )
+                        except Exception as e:
+                            logging.info(f"\tFailed to compute motion: {e}")
+                            motion = None
+
                         if motion is not None:
                             logging.info(f"\tMotion computed successfully!")
+                            recording_bin_corrected = interpolate_motion(
+                                recording_bin_c.astype("float32"),
+                                motion=motion,
+                                **interpolate_motion_kwargs
+                            )
+                            recording_corrected = interpolate_motion(
+                                recording_processed_c.astype("float32"),
+                                motion=motion,
+                                **interpolate_motion_kwargs
+                            )
+
+                            # split segments back
+                            if concat_motion:
+                                rec_corrected_list = []
+                                rec_corrected_bin_list = []
+                                start_frame = 0
+                                for segment_index in range(recording_bin.get_num_segments()):
+                                    end_frame = start_frame + recording_bin.get_num_samples(segment_index)
+                                    rec_split_corrected = recording_corrected.frame_slice(
+                                        start_frame=start_frame,
+                                        end_frame=end_frame
+                                    )
+                                    rec_corrected_list.append(rec_split_corrected)
+                                    rec_split_bin = recording_bin_corrected.frame_slice(
+                                        start_frame=start_frame,
+                                        end_frame=end_frame
+                                    )
+                                    rec_corrected_bin_list.append(rec_split_bin)
+                                    start_frame = end_frame
+                                # append all segments
+                                recording_corrected = si.append_recordings(rec_corrected_list)
+                                recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
+
                             if motion_params["apply"]:
                                 logging.info(f"\tApplying motion correction")
-                                recording_bin_corrected = interpolate_motion(
-                                    recording_bin_c.astype("float32"),
-                                    motion=motion,
-                                    **interpolate_motion_kwargs
-                                )
-                                recording_corrected = interpolate_motion(
-                                    recording_processed_c.astype("float32"),
-                                    motion=motion,
-                                    **interpolate_motion_kwargs
-                                )
-
-                                # split segments back
-                                if concat_motion:
-                                    rec_corrected_list = []
-                                    rec_corrected_bin_list = []
-                                    for segment_index in range(recording_bin.get_num_segments()):
-                                        num_samples = recording_bin.get_num_samples(segment_index)
-                                        if segment_index == 0:
-                                            start_frame = 0
-                                        else:
-                                            start_frame = recording_bin.get_num_samples(segment_index - 1)
-                                        end_frame = start_frame + num_samples
-                                        rec_split_corrected = recording_corrected.frame_slice(
-                                            start_frame=start_frame,
-                                            end_frame=end_frame
-                                        )
-                                        rec_corrected_list.append(rec_split_corrected)
-                                        rec_split_bin = recording_bin_corrected.frame_slice(
-                                            start_frame=start_frame,
-                                            end_frame=end_frame
-                                        )
-                                        rec_corrected_bin_list.append(rec_split_bin)
-                                    # append all segments
-                                    recording_corrected = si.append_recordings(rec_corrected_list)
-                                    recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
-
-                            if motion_params["apply"]:
                                 recording_processed = recording_corrected
                                 recording_bin = recording_bin_corrected
-                                # if motion is applied, the recording is no longer json serializable since
-                                # it contains the motion object which is not json serializable
-                                visualization_file_is_json_serializable = False
                         else:
                             logging.info(f"\tMotion computation failed. Skipping motion correction")
                             preprocessing_notes += "\n- Motion computation failed. Skipping motion correction.\n"
+                            if motion_folder.is_dir():
+                                shutil.rmtree(motion_folder)
 
-                        # this is to reload the motion-corrected recording lazily
-                        if recording_corrected is not None:     
-                            dump_to_json_or_pickle(
-                                recording_corrected,
-                                results_folder,
-                                motioncorrected_output_filename,
-                                relative_to=results_folder
-                            )
+                    # This is used to reload the binary traces downstream
+                    dump_to_json_or_pickle(
+                        recording_bin,
+                        results_folder,
+                        binary_output_filename,
+                        relative_to=results_folder
+                    )
+
+                    # This is to reload the recordings lazily
+                    dump_to_json_or_pickle(
+                        recording_processed,
+                        results_folder,
+                        preprocessing_output_filename,
+                        relative_to=results_folder
+                    )
+
+                    # this is to reload the motion-corrected recording lazily
+                    if recording_corrected is not None:     
+                        dump_to_json_or_pickle(
+                            recording_corrected,
+                            results_folder,
+                            motioncorrected_output_filename,
+                            relative_to=results_folder
+                        )
 
                     recording_drift = recording_bin
                     drift_relative_folder = results_folder
