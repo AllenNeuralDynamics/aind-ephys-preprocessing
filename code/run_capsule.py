@@ -433,6 +433,7 @@ def run() -> None:
                         except Exception as e:
                             logging.info(f"\tFailed to compute motion: {e}")
                             motion = None
+
                         if motion is not None:
                             logging.info(f"\tMotion computed successfully!")
                             recording_bin_corrected = interpolate_motion(
@@ -475,6 +476,8 @@ def run() -> None:
                         else:
                             logging.info(f"\tMotion computation failed. Skipping motion correction")
                             preprocessing_notes += "\n- Motion computation failed. Skipping motion correction.\n"
+                            if motion_folder.is_dir():
+                                shutil.rmtree(motion_folder)
 
                     # This is used to reload the binary traces downstream
                     dump_to_json_or_pickle(
