@@ -222,6 +222,18 @@ def s3_clock_offset_s() -> float:
     return (datetime.now(timezone.utc) - server_time).total_seconds()
 
 
+def _job_run_tag(job_config: dict) -> str:
+    """The run tag of the S3 folder: the segment dispatch's, shared by all of the run's
+    parallel instances, so they write to one folder."""
+    run_tag = job_config.get("run_tag")
+    if not run_tag:
+        raise RuntimeError(
+            "The job has no run_tag: update the preprocessing segment dispatch step to "
+            "the commit that writes it (all of a run's instances must share its tag)"
+        )
+    return run_tag
+
+
 def upload_folder_to_s3(
     local_folder: Path, s3_url: str, n_threads: int = 16, max_attempts: int = 8
 ) -> int:
@@ -383,9 +395,14 @@ def run() -> None:
             f"--s3-output-folder must start with s3://, got {S3_OUTPUT_FOLDER}"
         )
 
-    # Get computation ID to make runs unique even when input parameters are the same
-    RUN_TAG = os.getenv("CO_COMPUTATION_ID")
-    logging.info(f"\tRUN_TAG: {RUN_TAG}")
+    # S3 folder: <session>/<run tag>/preprocessed_<recording>.zarr. The run tag comes
+    # from the preprocessing segment dispatch (job "run_tag"), shared by all of a
+    # run's parallel instances. CO_COMPUTATION_ID is not unique per run: two runs of
+    # one pipeline launched one after the other both got the later run's ID, and
+    # one run's cleanup deleted the other's data.
+    logging.info(
+        f"\tCO_COMPUTATION_ID: {os.getenv('CO_COMPUTATION_ID')} (not used for the S3 path)"
+    )
 
     ecephys_session_folders = [
         p
@@ -505,6 +522,8 @@ def run() -> None:
             session_name = job_config["session_name"]
             recording_name = job_config["recording_name"]
             recording_dict = job_config["recording_dict"]
+            # Checked before preprocessing, so a missing tag fails fast
+            run_tag = _job_run_tag(job_config) if S3_OUTPUT_FOLDER is not None else None
             skip_times = job_config.get("skip_times", False)
             debug = job_config.get("debug", False)
 
@@ -745,7 +764,6 @@ def run() -> None:
                     # logging.info(f"\tTEST ZARR PATH {test_zarr_url}")
 
                     if S3_OUTPUT_FOLDER is not None:
-                        zarr_url = f"{S3_OUTPUT_FOLDER}/{session_name}/{RUN_TAG}/preprocessed_{recording_name}.zarr"
                         # Diagnostic only: never fail the run over it
                         try:
                             logging.info(
@@ -764,6 +782,8 @@ def run() -> None:
                         recording_processed.save(format="zarr", folder=local_zarr)
 
                         # 2) Upload to S3 with per-file retries
+                        logging.info(f"\tRUN_TAG: {run_tag} (from the segment dispatch)")
+                        zarr_url = f"{S3_OUTPUT_FOLDER}/{session_name}/{run_tag}/preprocessed_{recording_name}.zarr"
                         logging.info(f"\tUploading to {zarr_url}")
                         t_upload = time.perf_counter()
                         n_files = upload_folder_to_s3(local_zarr, zarr_url)
