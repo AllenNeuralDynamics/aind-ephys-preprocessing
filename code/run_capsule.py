@@ -42,6 +42,10 @@ PARAMS_FILE = Path("../params.json")
 motion_presets = spre.get_motion_presets()
 
 def dump_to_json_or_pickle(recording, results_folder, base_name, relative_to):
+    if (results_folder / f"{base_name}.json").is_file():
+        (results_folder / f"{base_name}.json").unlink()
+    if (results_folder / f"{base_name}.pkl").is_file():
+        (results_folder / f"{base_name}.pkl").unlink()
     if recording.check_serializability("json"):
         recording.dump_to_json(results_folder / f"{base_name}.json", relative_to=relative_to)
     else:
@@ -431,16 +435,20 @@ def run() -> None:
                             recording_processed_c = recording_processed
 
                         # use compute motion
-                        motion = spre.compute_motion(
-                            recording_bin_c,
-                            preset=preset,
-                            folder=motion_folder,
-                            detect_kwargs=detect_kwargs,
-                            select_kwargs=select_kwargs,
-                            localize_peaks_kwargs=localize_peaks_kwargs,
-                            estimate_motion_kwargs=estimate_motion_kwargs,
-                            raise_error=False
-                        )
+                        try:
+                            motion = spre.compute_motion(
+                                recording_bin_c,
+                                preset=preset,
+                                folder=motion_folder,
+                                detect_kwargs=detect_kwargs,
+                                select_kwargs=select_kwargs,
+                                localize_peaks_kwargs=localize_peaks_kwargs,
+                                estimate_motion_kwargs=estimate_motion_kwargs,
+                                raise_error=False
+                            )
+                        except Exception as e:
+                            logging.info(f"\tFailed to compute motion: {e}")
+                            motion = None
                         if motion is not None:
                             logging.info(f"\tMotion computed successfully!")
                             if motion_params["apply"]:
@@ -490,6 +498,15 @@ def run() -> None:
                         else:
                             logging.info(f"\tMotion computation failed. Skipping motion correction")
                             preprocessing_notes += "\n- Motion computation failed. Skipping motion correction.\n"
+
+                        # replace the original recording with the motion-corrected one if available
+                        if recording_bin_corrected is not None:
+                            dump_to_json_or_pickle(
+                                recording_bin_corrected,
+                                results_folder,
+                                binary_output_filename,
+                                relative_to=results_folder
+                            )
 
                         # this is to reload the motion-corrected recording lazily
                         if recording_corrected is not None:     
