@@ -450,13 +450,9 @@ def run() -> None:
                             if concat_motion:
                                 rec_corrected_list = []
                                 rec_corrected_bin_list = []
+                                start_frame = 0
                                 for segment_index in range(recording_bin.get_num_segments()):
-                                    num_samples = recording_bin.get_num_samples(segment_index)
-                                    if segment_index == 0:
-                                        start_frame = 0
-                                    else:
-                                        start_frame = recording_bin.get_num_samples(segment_index - 1)
-                                    end_frame = start_frame + num_samples
+                                    end_frame = start_frame + recording_bin.get_num_samples(segment_index)
                                     rec_split_corrected = recording_corrected.frame_slice(
                                         start_frame=start_frame,
                                         end_frame=end_frame
@@ -467,6 +463,7 @@ def run() -> None:
                                         end_frame=end_frame
                                     )
                                     rec_corrected_bin_list.append(rec_split_bin)
+                                    start_frame = end_frame
                                 # append all segments
                                 recording_corrected = si.append_recordings(rec_corrected_list)
                                 recording_bin_corrected = si.append_recordings(rec_corrected_bin_list)
@@ -475,9 +472,6 @@ def run() -> None:
                                 logging.info(f"\tApplying motion correction")
                                 recording_processed = recording_corrected
                                 recording_bin = recording_bin_corrected
-                                # if motion is applied, the recording is no longer json serializable since
-                                # it contains the motion object which is not json serializable
-                                visualization_file_is_json_serializable = False
                         else:
                             logging.info(f"\tMotion computation failed. Skipping motion correction")
                             preprocessing_notes += "\n- Motion computation failed. Skipping motion correction.\n"
